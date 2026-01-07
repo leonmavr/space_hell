@@ -500,6 +500,7 @@
 
             if (debugPassword === 'debug' && debugWave >= 1 && debugWave <= 999) {
                 // Directly jump to selected wave when debug password is correct
+                gameState.lives = 999; // infinite lives for debugging
                 gameState.wave = debugWave;
             } else {
                 // Calculate starting wave based on world
@@ -1524,8 +1525,8 @@
                     if (s > this.maxSpeed) { this.vx = (this.vx / s) * this.maxSpeed; this.vy = (this.vy / s) * this.maxSpeed; }
                 }
                 this.x += this.vx; this.y += this.vy;
-                if (this.x < -60) this.x = canvas.width + 60; if (this.x > canvas.width + 60) this.x = -60;
-                if (this.y < -60) this.y = canvas.height + 60; if (this.y > canvas.height + 60) this.y = -60;
+                if (this.x < -40) this.x = canvas.width + 40; if (this.x > canvas.width + 40) this.x = -40;
+                if (this.y < -40) this.y = canvas.height + 40; if (this.y > canvas.height + 40) this.y = -40;
             }
             getArcTips() {
                 const tipDist = this.size * 1.15;
@@ -1612,8 +1613,8 @@
                     if (this.timer > 60) { this.visible = false; this.timer = 0; this.vx = 0; this.vy = 0; }
                 }
 
-                if (this.x < -60) this.x = canvas.width + 60; if (this.x > canvas.width + 60) this.x = -60;
-                if (this.y < -60) this.y = canvas.height + 60; if (this.y > canvas.height + 60) this.y = -60;
+                if (this.x < -40) this.x = canvas.width + 40; if (this.x > canvas.width + 40) this.x = -40;
+                if (this.y < -40) this.y = canvas.height + 40; if (this.y > canvas.height + 40) this.y = -40;
             }
             takeDamage(amount) {
                 if (!this.visible) return false;
@@ -1765,8 +1766,8 @@
                     }
                 }
                 this.x += this.vx; this.y += this.vy;
-                if (this.x < -80) this.x = canvas.width + 80; if (this.x > canvas.width + 80) this.x = -80;
-                if (this.y < -80) this.y = canvas.height + 80; if (this.y > canvas.height + 80) this.y = -80;
+                if (this.x < -50) this.x = canvas.width + 50; if (this.x > canvas.width + 50) this.x = -50;
+                if (this.y < -50) this.y = canvas.height + 50; if (this.y > canvas.height + 50) this.y = -50;
             }
             takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
             draw(ctx) {
@@ -1795,8 +1796,8 @@
                 this.vx = Math.cos(a) * s;
                 this.vy = Math.sin(a) * s;
                 this.x += this.vx; this.y += this.vy;
-                if (this.x < -50) this.x = canvas.width + 50; if (this.x > canvas.width + 50) this.x = -50;
-                if (this.y < -50) this.y = canvas.height + 50; if (this.y > canvas.height + 50) this.y = -50;
+                if (this.x < -40) this.x = canvas.width + 40; if (this.x > canvas.width + 40) this.x = -40;
+                if (this.y < -40) this.y = canvas.height + 40; if (this.y > canvas.height + 40) this.y = -40;
             }
             takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
             draw(ctx) {
@@ -1861,25 +1862,58 @@
                 this.hp = tier === TIER_LARGE ? 10 : (tier === TIER_MED ? 7 : 5);
                 this.maxHp = this.hp;
                 this.size = 18 * this.scale;
-                this.vx = (Math.random() - 0.5) * 0.8;
-                this.vy = (Math.random() - 0.5) * 0.8;
+                this.vx = (Math.random() - 0.5) * 1.4;
+                this.vy = (Math.random() - 0.5) * 1.4;
                 this.webGroupId = nextWebGroupId++;
+                this.webCenterX = x;
+                this.webCenterY = y;
                 this.dropTimer = 0;
                 this.lastNodeId = null;
                 this.nodesDropped = 0;
+                this.maxNodes = 9 + this.tier * 4;
             }
             update(player) {
                 // Slow creep
                 this.x += this.vx; this.y += this.vy;
                 if (Math.random() < 0.01) { this.vx = (Math.random() - 0.5) * 0.9; this.vy = (Math.random() - 0.5) * 0.9; }
 
-                if (this.x < -80) this.x = canvas.width + 80; if (this.x > canvas.width + 80) this.x = -80;
-                if (this.y < -80) this.y = canvas.height + 80; if (this.y > canvas.height + 80) this.y = -80;
-
+                // Keep fully on-screen and bounce off edges
+                const pad = this.size + 4;
+                if (this.x < pad) { this.x = pad; if (this.vx < 0) this.vx = -this.vx; }
+                if (this.x > canvas.width - pad) { this.x = canvas.width - pad; if (this.vx > 0) this.vx = -this.vx; }
+                if (this.y < pad) { this.y = pad; if (this.vy < 0) this.vy = -this.vy; }
+                if (this.y > canvas.height - pad) { this.y = canvas.height - pad; if (this.vy > 0) this.vy = -this.vy; }
                 this.dropTimer++;
-                if (this.dropTimer > 150 && this.nodesDropped < 7) {
+                if (this.dropTimer > 90 && this.nodesDropped < this.maxNodes) {
                     this.dropTimer = 0;
-                    const node = new WebNode(this.x, this.y, this.webGroupId, this.lastNodeId);
+                    // Drop nodes clustered around a fixed center (not a vertical chain / not all over the screen)
+                    const pad = this.size + 4;
+                    const radius = 140;
+                    const minStep = 80;
+
+                    let prev = null;
+                    if (this.lastNodeId != null) {
+                        for (let i = 0; i < webNodes.length; i++) {
+                            if (webNodes[i].id === this.lastNodeId) { prev = webNodes[i]; break; }
+                        }
+                    }
+
+                    // Keep the cluster center on-screen.
+                    const cx = Math.max(pad, Math.min(canvas.width - pad, this.webCenterX));
+                    const cy = Math.max(pad, Math.min(canvas.height - pad, this.webCenterY));
+
+                    let nx = cx;
+                    let ny = cy;
+                    for (let attempt = 0; attempt < 12; attempt++) {
+                        const a = Math.random() * Math.PI * 2;
+                        const r = radius * Math.sqrt(Math.random());
+                        const tx = Math.max(pad, Math.min(canvas.width - pad, cx + Math.cos(a) * r));
+                        const ty = Math.max(pad, Math.min(canvas.height - pad, cy + Math.sin(a) * r));
+                        if (!prev || Math.hypot(tx - prev.x, ty - prev.y) >= minStep) { nx = tx; ny = ty; break; }
+                        nx = tx; ny = ty;
+                    }
+
+                    const node = new WebNode(nx, ny, this.webGroupId, this.lastNodeId);
                     this.lastNodeId = node.id;
                     this.nodesDropped++;
                     webNodes.push(node);
@@ -1918,10 +1952,13 @@
             update(player) {
                 if (!player) return;
                 this.timer++;
-                this.angle = Math.atan2(player.y - this.y, player.x - this.x);
+                const toward = Math.atan2(player.y - this.y, player.x - this.x);
+                // Face the player while shooting (beak/body point toward player)
+                // While fleeing, face away.
+                this.angle = (this.state === 1) ? toward : (toward + Math.PI);
                 if (this.state === 0) {
                     // Move away from the player for 3 seconds
-                    const away = this.angle + Math.PI;
+                    const away = toward + Math.PI;
                     this.vx += Math.cos(away) * 0.08;
                     this.vy += Math.sin(away) * 0.08;
                     const s = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
@@ -1931,13 +1968,17 @@
                     this.vx *= 0.98; this.vy *= 0.98;
                     if (this.timer > 180) { this.state = 1; this.timer = 0; this.vx = 0; this.vy = 0; }
                 } else {
-                    // Hold position and shoot for 1 second
+                    // Hold position and shoot for 1.5 seconds
                     if (this.timer % 10 === 0) this.shootAt(player);
-                    if (this.timer > 60) { this.state = 0; this.timer = 0; }
+                    if (this.timer > 90) { this.state = 0; this.timer = 0; }
                 }
 
-                if (this.x < -160) this.x = canvas.width - 160; if (this.x > canvas.width) this.x = -160;
-                if (this.y < -160) this.y = canvas.height - 160; if (this.y > canvas.height) this.y = -160;
+                // Wrap without parking the hawk off-screen (it can hold still while shooting)
+                const m = 160;
+                if (this.x < -m) this.x = canvas.width - m;
+                if (this.x > canvas.width + m) this.x = m;
+                if (this.y < -m) this.y = canvas.height - m;
+                if (this.y > canvas.height + m) this.y = m;
             }
             shootAt(player) {
                 const ang = Math.atan2(player.y - this.y, player.x - this.x);
@@ -1960,29 +2001,67 @@
             draw(ctx) {
                 ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
                 ctx.strokeStyle = '#fa0'; ctx.shadowColor = '#fa0'; ctx.shadowBlur = 12; ctx.lineWidth = 2;
-                // Body square
-                ctx.strokeRect(-this.size, -this.size, this.size * 2, this.size * 2);
-                // Wings (triangles)
+
+                const s = this.size;
+                const bodyW = s * 0.85;
+                const bodyBack = -s * 1.25;
+                const bodyFront = s * 0.95;
+
+                // Body (sleek oval/teardrop outline)
                 ctx.beginPath();
-                ctx.moveTo(-this.size, 0);
-                ctx.lineTo(-this.size * 2.0, -this.size * 0.8);
-                ctx.lineTo(-this.size * 2.0, this.size * 0.8);
+                ctx.moveTo(bodyFront, 0);
+                ctx.quadraticCurveTo(s * 0.35, -bodyW, bodyBack, -bodyW * 0.25);
+                ctx.quadraticCurveTo(bodyBack - s * 0.35, 0, bodyBack, bodyW * 0.25);
+                ctx.quadraticCurveTo(s * 0.35, bodyW, bodyFront, 0);
+                ctx.stroke();
+
+                // Tail (forked)
+                ctx.beginPath();
+                ctx.moveTo(bodyBack, 0);
+                ctx.lineTo(bodyBack - s * 0.8, -s * 0.35);
+                ctx.lineTo(bodyBack - s * 0.55, 0);
+                ctx.lineTo(bodyBack - s * 0.8, s * 0.35);
                 ctx.closePath();
                 ctx.stroke();
 
+                // Wings (two swept polygons). Bullets fire from the wing area; do NOT draw hardpoints.
+                const wingBaseX = s * 0.15;
+                const wingMidX = -s * 0.25;
+                const wingTipX = -s * 1.55;
+                const wingSpan = s * 1.55;
+                const wingInset = s * 0.55;
+
+                // Left wing (+y)
                 ctx.beginPath();
-                ctx.moveTo(this.size, 0);
-                ctx.lineTo(this.size * 2.0, -this.size * 0.8);
-                ctx.lineTo(this.size * 2.0, this.size * 0.8);
+                ctx.moveTo(wingBaseX, wingInset);
+                ctx.lineTo(wingMidX, wingSpan);
+                ctx.lineTo(wingTipX, wingSpan * 0.85);
+                ctx.lineTo(-s * 0.85, wingInset * 0.85);
                 ctx.closePath();
                 ctx.stroke();
 
-                // Beak
+                // Right wing (-y)
                 ctx.beginPath();
-                ctx.moveTo(0, -this.size * 0.2);
-                ctx.lineTo(this.size * 0.8, 0);
-                ctx.lineTo(0, this.size * 0.2);
+                ctx.moveTo(wingBaseX, -wingInset);
+                ctx.lineTo(wingMidX, -wingSpan);
+                ctx.lineTo(wingTipX, -wingSpan * 0.85);
+                ctx.lineTo(-s * 0.85, -wingInset * 0.85);
                 ctx.closePath();
+                ctx.stroke();
+
+                // Beak (points forward toward player while shooting)
+                ctx.beginPath();
+                ctx.moveTo(bodyFront - s * 0.15, -s * 0.22);
+                ctx.lineTo(bodyFront + s * 0.75, 0);
+                ctx.lineTo(bodyFront - s * 0.15, s * 0.22);
+                ctx.closePath();
+                ctx.stroke();
+
+                // Small neck notch / body detail
+                ctx.beginPath();
+                ctx.moveTo(s * 0.55, -s * 0.22);
+                ctx.lineTo(s * 0.35, 0);
+                ctx.lineTo(s * 0.55, s * 0.22);
                 ctx.stroke();
 
                 ctx.restore();
@@ -2275,6 +2354,12 @@
 
         function startWave() {
             document.getElementById('wave-display').innerText = 'WAVE: ' + gameState.wave;
+
+            // Clear any leftover web hazards between waves so progression can't stall.
+            // (Web nodes are obstacles, not enemies.)
+            webNodes = [];
+            nextWebGroupId = 1;
+            nextWebNodeId = 1;
             
             // Cleanup Powerups at start of boss wave
             if (gameState.wave === 11 || gameState.wave === 22 || gameState.wave === 33) {
@@ -2418,11 +2503,11 @@
             let x, y, d, attempts = 0;
             do {
                 if (Math.random() < 0.5) {
-                    x = Math.random() < 0.5 ? -50 : canvas.width + 50;
+                    x = Math.random() < 0.5 ? -20 : canvas.width + 20;
                     y = Math.random() * canvas.height;
                 } else {
                     x = Math.random() * canvas.width;
-                    y = Math.random() < 0.5 ? -50 : canvas.height + 50;
+                    y = Math.random() < 0.5 ? -20 : canvas.height + 20;
                 }
                 if (player) {
                     const dx = x - player.x; const dy = y - player.y; d = Math.sqrt(dx*dx + dy*dy);
@@ -2599,7 +2684,19 @@
         function destroyPhaseMantis(i) { genericDestroy(phaseMantises, i, '#fff', 1200); }
         function destroySniperMosquito(i) { genericDestroy(sniperMosquitos, i, '#f00', 1500); }
         function destroySiphonFly(i) { genericDestroy(siphonFlies, i, '#d0f', 800); }
-        function destroyWebWeaver(i) { genericDestroy(webWeavers, i, '#0ff', 1500); }
+        function destroyWebWeaver(i) {
+            const w = webWeavers[i]; if (!w) return;
+            const gid = w.webGroupId;
+            // Remove associated web nodes (no extra score) and spawn small particles for feedback
+            for (let j = webNodes.length - 1; j >= 0; j--) {
+                if (webNodes[j].groupId === gid) {
+                    const n = webNodes.splice(j, 1)[0];
+                    spawnParticles(n.x, n.y, '#0ff');
+                }
+            }
+            // Now destroy the weaver itself (awards score / particles)
+            genericDestroy(webWeavers, i, '#0ff', 1500);
+        }
         function destroyHawkShooter(i) { genericDestroy(hawkShooters, i, '#fa0', 1400); }
 
         function destroyWebNode(i) {
@@ -2640,7 +2737,7 @@
                 drones.length === 0 &&
                 tornados.length === 0 && reflectors.length === 0 && trailblazers.length === 0 && orbitals.length === 0 && prisms.length === 0 && repulsors.length === 0 &&
                 staticBeetles.length === 0 && phaseMantises.length === 0 && sniperMosquitos.length === 0 && clusterRoaches.length === 0 && roachMites.length === 0 &&
-                siphonFlies.length === 0 && webWeavers.length === 0 && webNodes.length === 0 && hawkShooters.length === 0 &&
+                siphonFlies.length === 0 && webWeavers.length === 0 && hawkShooters.length === 0 &&
                 bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0) {
                 
                 checkUnlocks(); 
