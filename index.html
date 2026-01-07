@@ -394,6 +394,20 @@
         let prisms = [];
         let repulsors = [];
 
+        // World 4 Enemies
+        let staticBeetles = [];
+        let phaseMantises = [];
+        let sniperMosquitos = [];
+        let clusterRoaches = [];
+        let roachMites = [];
+        let siphonFlies = [];
+        let webWeavers = [];
+        let webNodes = [];
+        let hawkShooters = [];
+
+        let nextWebGroupId = 1;
+        let nextWebNodeId = 1;
+
         // Bosses
         let bossWorms = [];
         let bossLancers = [];
@@ -413,7 +427,7 @@
         const ACCELERATION = 0.15;
         const ROTATION_SPEED = 0.08;
         const BULLET_SPEED = 8;
-        const BULLET_LIFETIME = 75;
+        const BULLET_LIFETIME = 85;
         const BULLET_RECOIL = 0.2;
         const BASE_FIRE_RATE = 15;
         
@@ -525,6 +539,19 @@
 
         // --- Helper ---
         function dist(o1, o2) { return Math.sqrt((o1.x - o2.x)**2 + (o1.y - o2.y)**2); }
+
+        function pointToSegmentDistance(px, py, ax, ay, bx, by) {
+            const abx = bx - ax; const aby = by - ay;
+            const apx = px - ax; const apy = py - ay;
+            const abLen2 = abx * abx + aby * aby;
+            if (abLen2 === 0) return Math.sqrt(apx * apx + apy * apy);
+            let t = (apx * abx + apy * aby) / abLen2;
+            t = Math.max(0, Math.min(1, t));
+            const projX = ax + t * abx;
+            const projY = ay + t * aby;
+            const dx = px - projX; const dy = py - projY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
 
         // --- Classes (Enemies & Objects) ---
         
@@ -1467,6 +1494,502 @@
             }
         }
 
+        // --- World 4 Enemies ---
+
+        class StaticBeetle {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 1.8 : (tier === TIER_MED ? 1.4 : 1.1);
+                this.hp = tier === TIER_LARGE ? 14 : (tier === TIER_MED ? 10 : 6);
+                this.maxHp = this.hp;
+                this.size = 22 * this.scale;
+                this.vx = 0; this.vy = 0;
+                this.angle = 0;
+                this.turnRate = 0.045;
+                this.maxSpeed = 2.2 + tier * 0.7;
+                this.accel = 0.06 + tier * 0.01;
+                this.pincerSpread = 0.55;
+            }
+            update(player) {
+                if (player) {
+                    const target = Math.atan2(player.y - this.y, player.x - this.x);
+                    let diff = target - this.angle;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    this.angle += Math.sign(diff) * Math.min(Math.abs(diff), this.turnRate);
+
+                    this.vx += Math.cos(this.angle) * this.accel;
+                    this.vy += Math.sin(this.angle) * this.accel;
+                    const s = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    if (s > this.maxSpeed) { this.vx = (this.vx / s) * this.maxSpeed; this.vy = (this.vy / s) * this.maxSpeed; }
+                }
+                this.x += this.vx; this.y += this.vy;
+                if (this.x < -60) this.x = canvas.width + 60; if (this.x > canvas.width + 60) this.x = -60;
+                if (this.y < -60) this.y = canvas.height + 60; if (this.y > canvas.height + 60) this.y = -60;
+            }
+            getArcTips() {
+                const tipDist = this.size * 1.15;
+                const a1 = this.angle - this.pincerSpread;
+                const a2 = this.angle + this.pincerSpread;
+                const ax = this.x + Math.cos(a1) * tipDist;
+                const ay = this.y + Math.sin(a1) * tipDist;
+                const bx = this.x + Math.cos(a2) * tipDist;
+                const by = this.y + Math.sin(a2) * tipDist;
+                return { ax, ay, bx, by };
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+                ctx.strokeStyle = '#ff0'; ctx.shadowColor = '#ff0'; ctx.shadowBlur = 15; ctx.lineWidth = 3;
+                // Body
+                ctx.beginPath();
+                ctx.rect(-this.size, -this.size * 0.7, this.size * 2, this.size * 1.4);
+                ctx.stroke();
+                ctx.globalAlpha = 0.15; ctx.fillStyle = '#ff0'; ctx.fillRect(-this.size, -this.size * 0.7, this.size * 2, this.size * 1.4);
+                ctx.globalAlpha = 1;
+
+                // Pincers
+                ctx.beginPath();
+                ctx.moveTo(this.size * 0.6, -this.size * 0.35);
+                ctx.lineTo(this.size * 1.2, -this.size * 0.7);
+                ctx.moveTo(this.size * 0.6, this.size * 0.35);
+                ctx.lineTo(this.size * 1.2, this.size * 0.7);
+                ctx.stroke();
+
+                // Electric arc between pincer tips (simple line)
+                ctx.strokeStyle = '#b0f'; ctx.shadowColor = '#b0f'; ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(this.size * 1.2, -this.size * 0.7);
+                ctx.lineTo(this.size * 1.2, this.size * 0.7);
+                ctx.stroke();
+
+                ctx.restore();
+                drawHpBar(ctx, this.hp, this.maxHp, this.size + 18, this.scale, 0, this.x, this.y);
+            }
+        }
+
+        class PhaseMantis {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 1.5 : (tier === TIER_MED ? 1.2 : 1.0);
+                this.hp = tier === TIER_LARGE ? 6 : (tier === TIER_MED ? 4 : 3);
+                this.maxHp = this.hp;
+                this.size = 14 * this.scale;
+                this.vx = 0; this.vy = 0;
+                this.visible = false;
+                this.timer = Math.floor(Math.random() * 60);
+            }
+            update(player) {
+                this.timer++;
+                if (!player) return;
+
+                if (!this.visible) {
+                    // Invisible / invulnerable for ~2 seconds
+                    if (this.timer > 120) {
+                        const pvx = player.vx || 0; const pvy = player.vy || 0;
+                        const speed = Math.sqrt(pvx * pvx + pvy * pvy);
+                        let fx = Math.cos(player.angle); let fy = Math.sin(player.angle);
+                        if (speed > 0.2) { fx = pvx / speed; fy = pvy / speed; }
+                        const tx = player.x + fx * 180;
+                        const ty = player.y + fy * 180;
+                        this.x = tx + (Math.random() - 0.5) * 60;
+                        this.y = ty + (Math.random() - 0.5) * 60;
+                        this.visible = true;
+                        this.timer = 0;
+                        playSound('enemyShoot');
+                    }
+                } else {
+                    // Visible strike window
+                    if (this.timer < 25) {
+                        const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                        const s = 5.5 + this.tier;
+                        this.vx = Math.cos(angle) * s;
+                        this.vy = Math.sin(angle) * s;
+                    } else {
+                        this.vx *= 0.92; this.vy *= 0.92;
+                    }
+                    this.x += this.vx; this.y += this.vy;
+                    if (this.timer > 60) { this.visible = false; this.timer = 0; this.vx = 0; this.vy = 0; }
+                }
+
+                if (this.x < -60) this.x = canvas.width + 60; if (this.x > canvas.width + 60) this.x = -60;
+                if (this.y < -60) this.y = canvas.height + 60; if (this.y > canvas.height + 60) this.y = -60;
+            }
+            takeDamage(amount) {
+                if (!this.visible) return false;
+                this.hp -= amount;
+                return this.hp <= 0;
+            }
+            draw(ctx) {
+                if (!this.visible) return;
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.strokeStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 12; ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.75;
+                ctx.beginPath();
+                ctx.moveTo(0, -this.size);
+                ctx.lineTo(this.size, 0);
+                ctx.lineTo(0, this.size);
+                ctx.lineTo(-this.size, 0);
+                ctx.closePath();
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+                ctx.restore();
+                drawHpBar(ctx, this.hp, this.maxHp, this.size + 16, this.scale, 0, this.x, this.y);
+            }
+        }
+
+        class SniperMosquito {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 1.3 : (tier === TIER_MED ? 1.1 : 0.95);
+                this.hp = tier === TIER_LARGE ? 6 : (tier === TIER_MED ? 4 : 3);
+                this.maxHp = this.hp;
+                this.size = 10 * this.scale;
+                this.vx = 0; this.vy = 0;
+
+                this.aimTimer = 0;
+                this.cooldown = 90 + Math.floor(Math.random() * 60);
+                this.beamTimer = 0;
+                this.aimAngle = 0;
+            }
+            update(player) {
+                if (player) {
+                    const dx = this.x - player.x; const dy = this.y - player.y;
+                    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+                    // Keep distance: flee when close
+                    if (d < 500) {
+                        this.vx += (dx / d) * 0.12;
+                        this.vy += (dy / d) * 0.12;
+                    }
+
+                    // Drift toward screen edges
+                    const margin = 60;
+                    const targetX = this.x < canvas.width / 2 ? margin : canvas.width - margin;
+                    const targetY = this.y < canvas.height / 2 ? margin : canvas.height - margin;
+                    this.vx += (targetX - this.x) * 0.0003;
+                    this.vy += (targetY - this.y) * 0.0003;
+
+                    const sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    const maxSp = 2.4 + this.tier * 0.3;
+                    if (sp > maxSp) { this.vx = (this.vx / sp) * maxSp; this.vy = (this.vy / sp) * maxSp; }
+
+                    this.x += this.vx; this.y += this.vy;
+                    this.vx *= 0.98; this.vy *= 0.98;
+
+                    if (this.cooldown > 0) {
+                        this.cooldown--;
+                    } else {
+                        this.aimTimer++;
+                        this.aimAngle = Math.atan2(player.y - this.y, player.x - this.x);
+                        if (this.aimTimer >= 90) {
+                            // Fire instant-hit beam after 1.5s aim
+                            const x2 = this.x + Math.cos(this.aimAngle) * 2000;
+                            const y2 = this.y + Math.sin(this.aimAngle) * 2000;
+                            const dSeg = pointToSegmentDistance(player.x, player.y, this.x, this.y, x2, y2);
+                            if (dSeg < PLAYER_SIZE + 4) {
+                                if (takeDamage(25)) return;
+                            }
+                            this.beamTimer = 10;
+                            this.aimTimer = 0;
+                            this.cooldown = 180;
+                            playSound('enemyShoot');
+                        }
+                    }
+                }
+
+                if (this.beamTimer > 0) this.beamTimer--;
+
+                // Clamp inside screen (snipers hug edges)
+                const pad = 30;
+                this.x = Math.max(pad, Math.min(canvas.width - pad, this.x));
+                this.y = Math.max(pad, Math.min(canvas.height - pad, this.y));
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.strokeStyle = '#f00'; ctx.shadowColor = '#f00'; ctx.shadowBlur = 10; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(0, 0, this.size, 0, Math.PI * 2); ctx.stroke();
+                // Proboscis
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.cos(this.aimAngle) * this.size * 2.2, Math.sin(this.aimAngle) * this.size * 2.2);
+                ctx.stroke();
+                ctx.restore();
+
+                if (this.aimTimer > 0) {
+                    const x2 = this.x + Math.cos(this.aimAngle) * 2000;
+                    const y2 = this.y + Math.sin(this.aimAngle) * 2000;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(255,0,0,0.35)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(x2, y2); ctx.stroke();
+                    ctx.restore();
+                }
+                if (this.beamTimer > 0) {
+                    const x2 = this.x + Math.cos(this.aimAngle) * 2000;
+                    const y2 = this.y + Math.sin(this.aimAngle) * 2000;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(255,0,0,0.8)';
+                    ctx.lineWidth = 6;
+                    ctx.beginPath(); ctx.moveTo(this.x, this.y); ctx.lineTo(x2, y2); ctx.stroke();
+                    ctx.restore();
+                }
+                drawHpBar(ctx, this.hp, this.maxHp, this.size + 16, this.scale, 0, this.x, this.y);
+            }
+        }
+
+        class ClusterRoach {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 2.0 : (tier === TIER_MED ? 1.6 : 1.25);
+                this.hp = tier === TIER_LARGE ? 26 : (tier === TIER_MED ? 20 : 14);
+                this.maxHp = this.hp;
+                this.size = 26 * this.scale;
+                this.vx = (Math.random() - 0.5) * 3;
+                this.vy = (Math.random() - 0.5) * 3;
+                this.changeTimer = 0;
+            }
+            update(player) {
+                this.changeTimer--;
+                if (this.changeTimer <= 0) {
+                    this.changeTimer = 25 + Math.floor(Math.random() * 25);
+                    const a = Math.random() * Math.PI * 2;
+                    const s = 1.2 + this.tier * 0.8;
+                    this.vx = Math.cos(a) * s;
+                    this.vy = Math.sin(a) * s;
+                    if (player && Math.random() > 0.5) {
+                        const pa = Math.atan2(player.y - this.y, player.x - this.x);
+                        this.vx += Math.cos(pa) * 0.8;
+                        this.vy += Math.sin(pa) * 0.8;
+                    }
+                }
+                this.x += this.vx; this.y += this.vy;
+                if (this.x < -80) this.x = canvas.width + 80; if (this.x > canvas.width + 80) this.x = -80;
+                if (this.y < -80) this.y = canvas.height + 80; if (this.y > canvas.height + 80) this.y = -80;
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.strokeStyle = '#0f0'; ctx.shadowColor = '#0f0'; ctx.shadowBlur = 10; ctx.lineWidth = 2;
+                // Flat segmented body
+                for (let i = -2; i <= 2; i++) {
+                    ctx.strokeRect(-this.size * 0.9 + i * (this.size * 0.35), -this.size * 0.35, this.size * 0.32, this.size * 0.7);
+                }
+                ctx.restore();
+                drawHpBar(ctx, this.hp, this.maxHp, this.size + 18, this.scale, 0, this.x, this.y);
+            }
+        }
+
+        class RoachMite {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.hp = 1; this.maxHp = this.hp;
+                this.size = 8 + tier * 2;
+                this.vx = 0; this.vy = 0;
+            }
+            update(player) {
+                if (!player) return;
+                const a = Math.atan2(player.y - this.y, player.x - this.x);
+                const s = 4.5 + this.tier * 0.8;
+                this.vx = Math.cos(a) * s;
+                this.vy = Math.sin(a) * s;
+                this.x += this.vx; this.y += this.vy;
+                if (this.x < -50) this.x = canvas.width + 50; if (this.x > canvas.width + 50) this.x = -50;
+                if (this.y < -50) this.y = canvas.height + 50; if (this.y > canvas.height + 50) this.y = -50;
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.fillStyle = '#0f0'; ctx.shadowColor = '#0f0'; ctx.shadowBlur = 8;
+                ctx.beginPath(); ctx.arc(0, 0, this.size, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class SiphonFly {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 1.1 : (tier === TIER_MED ? 0.95 : 0.8);
+                this.hp = tier === TIER_LARGE ? 3 : (tier === TIER_MED ? 2 : 1);
+                this.maxHp = this.hp;
+                this.size = 7 * this.scale;
+                this.orbitAngle = Math.random() * Math.PI * 2;
+                this.orbitDist = 55 + Math.random() * 25;
+                this.drainCooldown = 0;
+            }
+            update(player) {
+                if (!player) return;
+                if (this.drainCooldown > 0) this.drainCooldown--;
+                this.orbitAngle += 0.12 + this.tier * 0.02;
+                const tx = player.x + Math.cos(this.orbitAngle) * this.orbitDist;
+                const ty = player.y + Math.sin(this.orbitAngle) * this.orbitDist;
+                this.x += (tx - this.x) * 0.12;
+                this.y += (ty - this.y) * 0.12;
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.strokeStyle = '#d0f'; ctx.shadowColor = '#d0f'; ctx.shadowBlur = 12; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(0, 0, this.size, 0, Math.PI * 2); ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+        class WebNode {
+            constructor(x, y, groupId, prevId = null) {
+                this.id = nextWebNodeId++;
+                this.x = x; this.y = y;
+                this.groupId = groupId;
+                this.prevId = prevId;
+                this.hp = 2; this.maxHp = this.hp;
+                this.size = 12;
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.strokeStyle = '#0ff'; ctx.shadowColor = '#0ff'; ctx.shadowBlur = 10; ctx.lineWidth = 2;
+                ctx.strokeRect(-this.size/2, -this.size/2, this.size, this.size);
+                ctx.restore();
+            }
+        }
+
+        class WebWeaver {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 1.7 : (tier === TIER_MED ? 1.35 : 1.1);
+                this.hp = tier === TIER_LARGE ? 10 : (tier === TIER_MED ? 7 : 5);
+                this.maxHp = this.hp;
+                this.size = 18 * this.scale;
+                this.vx = (Math.random() - 0.5) * 0.8;
+                this.vy = (Math.random() - 0.5) * 0.8;
+                this.webGroupId = nextWebGroupId++;
+                this.dropTimer = 0;
+                this.lastNodeId = null;
+                this.nodesDropped = 0;
+            }
+            update(player) {
+                // Slow creep
+                this.x += this.vx; this.y += this.vy;
+                if (Math.random() < 0.01) { this.vx = (Math.random() - 0.5) * 0.9; this.vy = (Math.random() - 0.5) * 0.9; }
+
+                if (this.x < -80) this.x = canvas.width + 80; if (this.x > canvas.width + 80) this.x = -80;
+                if (this.y < -80) this.y = canvas.height + 80; if (this.y > canvas.height + 80) this.y = -80;
+
+                this.dropTimer++;
+                if (this.dropTimer > 150 && this.nodesDropped < 7) {
+                    this.dropTimer = 0;
+                    const node = new WebNode(this.x, this.y, this.webGroupId, this.lastNodeId);
+                    this.lastNodeId = node.id;
+                    this.nodesDropped++;
+                    webNodes.push(node);
+                    playSound('enemyShoot');
+                }
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y);
+                ctx.strokeStyle = '#0ff'; ctx.shadowColor = '#0ff'; ctx.shadowBlur = 15; ctx.lineWidth = 2;
+                // Spider-ish geometry
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const a = (i / 6) * Math.PI * 2;
+                    ctx.lineTo(Math.cos(a) * this.size, Math.sin(a) * this.size);
+                }
+                ctx.closePath();
+                ctx.stroke();
+                ctx.restore();
+                drawHpBar(ctx, this.hp, this.maxHp, this.size + 18, this.scale, 0, this.x, this.y);
+            }
+        }
+
+        class HawkShooter {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y; this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 1.8 : (tier === TIER_MED ? 1.45 : 1.15);
+                this.hp = tier === TIER_LARGE ? 10 : (tier === TIER_MED ? 7 : 5);
+                this.maxHp = this.hp;
+                this.size = 16 * this.scale;
+                this.vx = 0; this.vy = 0;
+                this.state = 0; // 0 = flee (3s), 1 = shoot (1s)
+                this.timer = 0;
+                this.angle = 0;
+            }
+            update(player) {
+                if (!player) return;
+                this.timer++;
+                this.angle = Math.atan2(player.y - this.y, player.x - this.x);
+                if (this.state === 0) {
+                    // Move away from the player for 3 seconds
+                    const away = this.angle + Math.PI;
+                    this.vx += Math.cos(away) * 0.08;
+                    this.vy += Math.sin(away) * 0.08;
+                    const s = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                    const maxS = 2.4 + this.tier * 0.3;
+                    if (s > maxS) { this.vx = (this.vx / s) * maxS; this.vy = (this.vy / s) * maxS; }
+                    this.x += this.vx; this.y += this.vy;
+                    this.vx *= 0.98; this.vy *= 0.98;
+                    if (this.timer > 180) { this.state = 1; this.timer = 0; this.vx = 0; this.vy = 0; }
+                } else {
+                    // Hold position and shoot for 1 second
+                    if (this.timer % 10 === 0) this.shootAt(player);
+                    if (this.timer > 60) { this.state = 0; this.timer = 0; }
+                }
+
+                if (this.x < -160) this.x = canvas.width - 160; if (this.x > canvas.width) this.x = -160;
+                if (this.y < -160) this.y = canvas.height - 160; if (this.y > canvas.height) this.y = -160;
+            }
+            shootAt(player) {
+                const ang = Math.atan2(player.y - this.y, player.x - this.x);
+                const perp = ang + Math.PI / 2;
+                const wingOffset = this.size * 0.9;
+                const leftX = this.x + Math.cos(perp) * wingOffset;
+                const leftY = this.y + Math.sin(perp) * wingOffset;
+                const rightX = this.x - Math.cos(perp) * wingOffset;
+                const rightY = this.y - Math.sin(perp) * wingOffset;
+
+                const sep = 6;
+                // Two parallel bullets from each wing (4 total)
+                bullets.push(new Bullet(leftX + Math.cos(perp) * sep, leftY + Math.sin(perp) * sep, ang, 'enemy'));
+                bullets.push(new Bullet(leftX - Math.cos(perp) * sep, leftY - Math.sin(perp) * sep, ang, 'enemy'));
+                bullets.push(new Bullet(rightX + Math.cos(perp) * sep, rightY + Math.sin(perp) * sep, ang, 'enemy'));
+                bullets.push(new Bullet(rightX - Math.cos(perp) * sep, rightY - Math.sin(perp) * sep, ang, 'enemy'));
+                playSound('enemyShoot');
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+                ctx.strokeStyle = '#fa0'; ctx.shadowColor = '#fa0'; ctx.shadowBlur = 12; ctx.lineWidth = 2;
+                // Body square
+                ctx.strokeRect(-this.size, -this.size, this.size * 2, this.size * 2);
+                // Wings (triangles)
+                ctx.beginPath();
+                ctx.moveTo(-this.size, 0);
+                ctx.lineTo(-this.size * 2.0, -this.size * 0.8);
+                ctx.lineTo(-this.size * 2.0, this.size * 0.8);
+                ctx.closePath();
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(this.size, 0);
+                ctx.lineTo(this.size * 2.0, -this.size * 0.8);
+                ctx.lineTo(this.size * 2.0, this.size * 0.8);
+                ctx.closePath();
+                ctx.stroke();
+
+                // Beak
+                ctx.beginPath();
+                ctx.moveTo(0, -this.size * 0.2);
+                ctx.lineTo(this.size * 0.8, 0);
+                ctx.lineTo(0, this.size * 0.2);
+                ctx.closePath();
+                ctx.stroke();
+
+                ctx.restore();
+                drawHpBar(ctx, this.hp, this.maxHp, this.size + 18, this.scale, 0, this.x, this.y);
+            }
+        }
+
         class Player {
             constructor() { this.hardReset(); }
             hardReset() {
@@ -1474,7 +1997,9 @@
                 this.rateLevel = 0; this.rateTimer = 0;
                 this.reverseTimer = 0;
                 this.ultCharge = 0; this.ultActive = false; this.ultTimer = 0;
-                this.slowTimer = 0; // New status effect
+                this.slowTimer = 0;
+                this.dampenTimer = 0; // 50% move + rotation slow
+                this.gridLockTimer = 0; // 90% move + rotation slow
                 this.respawn();
             }
             respawn() {
@@ -1484,6 +2009,8 @@
                 this.invulnerable = 120; this.fireCooldown = 0;
                 this.ultActive = false; this.ultTimer = 0;
                 this.slowTimer = 0;
+                this.dampenTimer = 0;
+                this.gridLockTimer = 0;
                 if (typeof player !== 'undefined') {
                     updateHealthUI(); updateUltUI();
                     let status = "";
@@ -1494,14 +2021,21 @@
                 }
             }
             update() {
-                if (keys.a) this.angle -= ROTATION_SPEED;
-                if (keys.d) this.angle += ROTATION_SPEED;
-                
-                // Slow effect handling
+                // Status timers
                 if (this.slowTimer > 0) this.slowTimer--;
-                let effectiveAccel = ACCELERATION;
-                if (this.slowTimer > 0) effectiveAccel *= 0.25; // 75% speed loss
+                if (this.dampenTimer > 0) this.dampenTimer--;
+                if (this.gridLockTimer > 0) this.gridLockTimer--;
 
+                // Slow effect handling
+                let effectiveAccel = ACCELERATION;
+                let effectiveRot = ROTATION_SPEED;
+                if (this.slowTimer > 0) { effectiveAccel *= 0.25; }
+                if (this.dampenTimer > 0) { effectiveAccel *= 0.5; effectiveRot *= 0.5; }
+                if (this.gridLockTimer > 0) { effectiveAccel *= 0.1; effectiveRot *= 0.1; }
+
+                if (keys.a) this.angle -= effectiveRot;
+                if (keys.d) this.angle += effectiveRot;
+                
                 if (keys.w) {
                     this.vx += Math.cos(this.angle) * effectiveAccel;
                     this.vy += Math.sin(this.angle) * effectiveAccel;
@@ -1582,7 +2116,7 @@
                 ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
                 
                 // Slowed Visual
-                if (this.slowTimer > 0) {
+                 if (this.slowTimer > 0 || this.dampenTimer > 0 || this.gridLockTimer > 0) {
                      ctx.strokeStyle = '#00f'; ctx.shadowColor = '#00f';
                 } else {
                      ctx.strokeStyle = COLOR_PLAYER; ctx.shadowColor = COLOR_PLAYER;
@@ -1707,6 +2241,9 @@
             ufos = []; worms = []; blackHoles = [];
             mines = []; aegises = []; hives = []; drones = []; lancers = []; tethers = [];
             tornados = []; reflectors = []; trailblazers = []; orbitals = []; prisms = []; repulsors = [];
+            staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
+            siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
+            nextWebGroupId = 1; nextWebNodeId = 1;
             mineShrapnels = [];
             bossWorms = [];
             bossLancers = [];
@@ -1726,6 +2263,9 @@
             asteroids = []; ufos = []; worms = []; blackHoles = [];
             mines = []; aegises = []; hives = []; drones = []; lancers = []; tethers = [];
             tornados = []; reflectors = []; trailblazers = []; orbitals = []; prisms = []; repulsors = [];
+            staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
+            siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
+            nextWebGroupId = 1; nextWebNodeId = 1;
             mineShrapnels = [];
             bossWorms = [];
             bossLancers = [];
@@ -1778,6 +2318,7 @@
 
             if (gameState.wave > 11) { world = 2; wWave = gameState.wave - 11; }
             if (gameState.wave > 22) { world = 3; wWave = gameState.wave - 22; }
+            if (gameState.wave > 33) { world = 4; wWave = gameState.wave - 33; }
 
             const baseSpawns = 4 + wWave * 2;
             const tier1Common = Math.floor(wWave * 0.8) + 1; 
@@ -1795,54 +2336,81 @@
             if (wWave >= 9) hazardTier3 = 1 + Math.floor((wWave - 9)/2);
 
             let totalEnemies = tier1Common + tier1Uncommon + tier2Common + tier2Uncommon + tier3Common + tier3Uncommon + hazardTier1 + hazardTier2 + hazardTier3;
-            if (world === 3) totalEnemies += 1; 
+
+            // World-specific extra spawns
+            let hawkCount = 0;
+            let roachCount = 0;
+            if (world === 3) totalEnemies += 1;
+            if (world === 4) {
+                hawkCount = 1 + Math.floor(wWave / 4);
+                roachCount = wWave >= 2 ? (1 + Math.floor((wWave - 2) / 4)) : 0;
+                totalEnemies += hawkCount + roachCount;
+            }
 
             const fillerCount = Math.max(0, baseSpawns - totalEnemies);
             
             if (world === 1) {
-                for (let i = 0; i < fillerCount; i++) spawnAsteroid(3);
-                for (let i = 0; i < tier1Common; i++) spawnUfo(1);
-                for (let i = 0; i < tier2Common; i++) spawnUfo(2);
-                for (let i = 0; i < tier3Common; i++) spawnUfo(3);
-                for (let i = 0; i < tier1Uncommon; i++) spawnWorm(1);
-                for (let i = 0; i < tier2Uncommon; i++) spawnWorm(2);
-                for (let i = 0; i < tier3Uncommon; i++) spawnWorm(3);
-                for (let i = 0; i < hazardTier1; i++) spawnBlackHole(1);
-                for (let i = 0; i < hazardTier2; i++) spawnBlackHole(2);
-                for (let i = 0; i < hazardTier3; i++) spawnBlackHole(3);
+                for (let i = 0; i < fillerCount; i++) spawnAsteroid(TIER_LARGE);
+                for (let i = 0; i < tier1Common; i++) spawnUfo(TIER_SMALL);
+                for (let i = 0; i < tier2Common; i++) spawnUfo(TIER_MED);
+                for (let i = 0; i < tier3Common; i++) spawnUfo(TIER_LARGE);
+                for (let i = 0; i < tier1Uncommon; i++) spawnWorm(TIER_SMALL);
+                for (let i = 0; i < tier2Uncommon; i++) spawnWorm(TIER_MED);
+                for (let i = 0; i < tier3Uncommon; i++) spawnWorm(TIER_LARGE);
+                for (let i = 0; i < hazardTier1; i++) spawnBlackHole(TIER_SMALL);
+                for (let i = 0; i < hazardTier2; i++) spawnBlackHole(TIER_MED);
+                for (let i = 0; i < hazardTier3; i++) spawnBlackHole(TIER_LARGE);
             } else if (world === 2) {
-                for (let i = 0; i < fillerCount; i++) spawnMine(3);
-                for (let i = 0; i < tier1Common; i++) spawnAegis(1);
-                for (let i = 0; i < tier2Common; i++) spawnAegis(2);
-                for (let i = 0; i < tier3Common; i++) spawnAegis(3);
-                for (let i = 0; i < tier1Uncommon; i++) spawnHive(1);
-                for (let i = 0; i < tier2Uncommon; i++) spawnHive(2);
-                for (let i = 0; i < tier3Uncommon; i++) spawnHive(3);
+                for (let i = 0; i < fillerCount; i++) spawnMine(TIER_LARGE);
+                for (let i = 0; i < tier1Common; i++) spawnAegis(TIER_SMALL);
+                for (let i = 0; i < tier2Common; i++) spawnAegis(TIER_MED);
+                for (let i = 0; i < tier3Common; i++) spawnAegis(TIER_LARGE);
+                for (let i = 0; i < tier1Uncommon; i++) spawnHive(TIER_SMALL);
+                for (let i = 0; i < tier2Uncommon; i++) spawnHive(TIER_MED);
+                for (let i = 0; i < tier3Uncommon; i++) spawnHive(TIER_LARGE);
                 const h1 = hazardTier1; const h2 = hazardTier2; const h3 = hazardTier3;
-                for(let i=0; i<h1; i++) i%2===0 ? spawnLancer(1) : spawnTetherTwins(1);
-                for(let i=0; i<h2; i++) i%2===0 ? spawnLancer(2) : spawnTetherTwins(2);
-                for(let i=0; i<h3; i++) i%2===0 ? spawnLancer(3) : spawnTetherTwins(3);
+                for(let i=0; i<h1; i++) i%2===0 ? spawnLancer(TIER_SMALL) : spawnTetherTwins(TIER_SMALL);
+                for(let i=0; i<h2; i++) i%2===0 ? spawnLancer(TIER_MED) : spawnTetherTwins(TIER_MED);
+                for(let i=0; i<h3; i++) i%2===0 ? spawnLancer(TIER_LARGE) : spawnTetherTwins(TIER_LARGE);
             } else if (world === 3) {
-                spawnPrism(Math.min(3, Math.ceil(wWave/3)));
-                for (let i = 0; i < tier1Common; i++) spawnReflector(1);
-                for (let i = 0; i < tier2Common; i++) spawnReflector(2);
-                for (let i = 0; i < tier3Common; i++) spawnReflector(3);
+                spawnPrism(Math.min(TIER_LARGE, Math.ceil(wWave/3)));
+                for (let i = 0; i < tier1Common; i++) spawnReflector(TIER_SMALL);
+                for (let i = 0; i < tier2Common; i++) spawnReflector(TIER_MED);
+                for (let i = 0; i < tier3Common; i++) spawnReflector(TIER_LARGE);
                 if (wWave <= 5) {
-                    for (let i = 0; i < tier1Uncommon; i++) spawnTornado(1);
-                    for (let i = 0; i < tier2Uncommon; i++) spawnTornado(2);
+                    for (let i = 0; i < tier1Uncommon; i++) spawnTornado(TIER_SMALL);
+                    for (let i = 0; i < tier2Uncommon; i++) spawnTornado(TIER_MED);
                 }
                 if (wWave >= 4) {
                     const count = Math.floor((wWave-3)*0.7)+1;
-                    for (let i = 0; i < count; i++) spawnTrailblazer(Math.min(3, Math.floor(i/2)+1));
+                    for (let i = 0; i < count; i++) spawnTrailblazer(Math.min(TIER_LARGE, Math.floor(i/2)+1));
                 }
                 if (wWave >= 4) {
                     const count = Math.floor((wWave-3)*0.5)+1;
-                    for (let i = 0; i < count; i++) spawnOrbital(Math.min(3, Math.floor(i/2)+1));
+                    for (let i = 0; i < count; i++) spawnOrbital(Math.min(TIER_LARGE, Math.floor(i/2)+1));
                 }
                 if (wWave >= 3 && wWave <= 7) {
                     const count = 1 + Math.floor((wWave-3)/2);
-                    for (let i = 0; i < count; i++) spawnRepulsor(Math.min(3, i+1));
+                    for (let i = 0; i < count; i++) spawnRepulsor(Math.min(TIER_LARGE, i+1));
                 }
+            } else if (world === 4) {
+                // World 4 (Waves 34-43): new enemies
+                for (let i = 0; i < fillerCount; i++) spawnStaticBeetle(TIER_LARGE);
+
+                for (let i = 0; i < tier1Common; i++) spawnStaticBeetle(TIER_SMALL);
+                for (let i = 0; i < tier2Common; i++) spawnStaticBeetle(TIER_MED);
+                for (let i = 0; i < tier3Common; i++) spawnStaticBeetle(TIER_LARGE);
+
+                for (let i = 0; i < tier1Uncommon; i++) spawnSiphonFly(TIER_SMALL);
+                for (let i = 0; i < tier2Uncommon; i++) spawnPhaseMantis(TIER_MED);
+                for (let i = 0; i < tier3Uncommon; i++) spawnSniperMosquito(TIER_LARGE);
+
+                for (let i = 0; i < hazardTier1; i++) spawnWebWeaver(TIER_SMALL);
+                for (let i = 0; i < hazardTier2; i++) spawnWebWeaver(TIER_MED);
+                for (let i = 0; i < hazardTier3; i++) spawnWebWeaver(TIER_LARGE);
+
+                for (let i = 0; i < hawkCount; i++) spawnHawkShooter(Math.min(TIER_LARGE, 1 + Math.floor(wWave / 4)));
+                for (let i = 0; i < roachCount; i++) spawnClusterRoach(Math.min(TIER_LARGE, 1 + Math.floor((wWave + 1) / 4)));
             }
         }
 
@@ -1864,7 +2432,7 @@
             return {x, y};
         }
 
-        function spawnAsteroid(tier) { const pos = getSafeEdgePosition(); asteroids.push(new Asteroid(pos.x, pos.y, tier===3?40:(tier===2?25:15), tier)); }
+        function spawnAsteroid(tier) { const pos = getSafeEdgePosition(); asteroids.push(new Asteroid(pos.x, pos.y, tier===TIER_LARGE?40:(tier===TIER_MED?25:15), tier)); }
         function spawnUfo(tier) { const pos = getSafeEdgePosition(); ufos.push(new Ufo(pos.x, pos.y, tier)); }
         function spawnWorm(tier) { const pos = getSafeEdgePosition(); worms.push(new SpaceWorm(pos.x, pos.y, tier)); }
         function spawnBlackHole(tier) {
@@ -1878,7 +2446,7 @@
             blackHoles.push(new BlackHole(x, y, tier));
         }
 
-        function spawnMine(tier) { const pos = getSafeEdgePosition(); mines.push(new Mine(pos.x, pos.y, tier===3?40:(tier===2?25:15), tier)); }
+        function spawnMine(tier) { const pos = getSafeEdgePosition(); mines.push(new Mine(pos.x, pos.y, tier===TIER_LARGE?40:(tier===TIER_MED?25:15), tier)); }
         function spawnAegis(tier) { const pos = getSafeEdgePosition(); aegises.push(new Aegis(pos.x, pos.y, tier)); }
         function spawnHive(tier) { const pos = getSafeEdgePosition(); hives.push(new Hive(pos.x, pos.y, tier)); }
         function spawnLancer(tier) { const pos = getSafeEdgePosition(); lancers.push(new Lancer(pos.x, pos.y, tier)); }
@@ -1908,6 +2476,20 @@
             } while (dist < 280 && attempts < 15);
             repulsors.push(new Repulsor(x, y, tier));
         }
+
+        // World 4 Spawns
+        function spawnStaticBeetle(tier) { const pos = getSafeEdgePosition(); staticBeetles.push(new StaticBeetle(pos.x, pos.y, tier)); }
+        function spawnPhaseMantis(tier) { const pos = getSafeEdgePosition(); phaseMantises.push(new PhaseMantis(pos.x, pos.y, tier)); }
+        function spawnSniperMosquito(tier) {
+            const margin = 40;
+            const x = Math.random() < 0.5 ? margin : canvas.width - margin;
+            const y = Math.random() * (canvas.height - margin * 2) + margin;
+            sniperMosquitos.push(new SniperMosquito(x, y, tier));
+        }
+        function spawnClusterRoach(tier) { const pos = getSafeEdgePosition(); clusterRoaches.push(new ClusterRoach(pos.x, pos.y, tier)); }
+        function spawnSiphonFly(tier) { const pos = getSafeEdgePosition(); siphonFlies.push(new SiphonFly(pos.x, pos.y, tier)); }
+        function spawnWebWeaver(tier) { const pos = getSafeEdgePosition(); webWeavers.push(new WebWeaver(pos.x, pos.y, tier)); }
+        function spawnHawkShooter(tier) { const pos = getSafeEdgePosition(); hawkShooters.push(new HawkShooter(pos.x, pos.y, tier)); }
 
         function spawnBonus(x, y, multiplier = 1) {
             if (Math.random() < 0.30 * multiplier) {
@@ -2012,6 +2594,41 @@
         function destroyPrism(i) { genericDestroy(prisms, i, COLOR_PRISM, 2000); }
         function destroyRepulsor(i) { genericDestroy(repulsors, i, COLOR_REPULSOR, 800); }
 
+        // World 4
+        function destroyStaticBeetle(i) { genericDestroy(staticBeetles, i, '#ff0', 900); }
+        function destroyPhaseMantis(i) { genericDestroy(phaseMantises, i, '#fff', 1200); }
+        function destroySniperMosquito(i) { genericDestroy(sniperMosquitos, i, '#f00', 1500); }
+        function destroySiphonFly(i) { genericDestroy(siphonFlies, i, '#d0f', 800); }
+        function destroyWebWeaver(i) { genericDestroy(webWeavers, i, '#0ff', 1500); }
+        function destroyHawkShooter(i) { genericDestroy(hawkShooters, i, '#fa0', 1400); }
+
+        function destroyWebNode(i) {
+            const n = webNodes[i]; if (!n) return;
+            webNodes.splice(i, 1);
+            spawnParticles(n.x, n.y, '#0ff');
+            gameState.score += 25;
+            document.getElementById('score-display').innerText = 'SCORE: ' + gameState.score;
+            playSound('shoot');
+            checkWaveEnd();
+        }
+
+        function destroyRoachMite(i) {
+            const m = roachMites[i]; if (!m) return;
+            roachMites.splice(i, 1);
+            spawnParticles(m.x, m.y, '#0f0');
+            gameState.score += 150;
+            finishKill();
+        }
+
+        function destroyClusterRoach(i) {
+            const r = clusterRoaches[i]; if (!r) return;
+            clusterRoaches.splice(i, 1);
+            spawnParticles(r.x, r.y, '#0f0');
+            for (let k = 0; k < 3; k++) roachMites.push(new RoachMite(r.x, r.y, Math.min(TIER_LARGE, r.tier)));
+            gameState.score += 1200;
+            finishKill();
+        }
+
         function finishKill() {
             document.getElementById('score-display').innerText = 'SCORE: ' + gameState.score;
             playSound('explosion'); shakeAmount = 10; checkWaveEnd();
@@ -2022,6 +2639,8 @@
                 mines.length === 0 && aegises.length === 0 && hives.length === 0 && lancers.length === 0 && tethers.length === 0 &&
                 drones.length === 0 &&
                 tornados.length === 0 && reflectors.length === 0 && trailblazers.length === 0 && orbitals.length === 0 && prisms.length === 0 && repulsors.length === 0 &&
+                staticBeetles.length === 0 && phaseMantises.length === 0 && sniperMosquitos.length === 0 && clusterRoaches.length === 0 && roachMites.length === 0 &&
+                siphonFlies.length === 0 && webWeavers.length === 0 && webNodes.length === 0 && hawkShooters.length === 0 &&
                 bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0) {
                 
                 checkUnlocks(); 
@@ -2063,6 +2682,9 @@
                 lancers = filterArr(lancers); tethers = filterArr(tethers); tornados = filterArr(tornados); reflectors = filterArr(reflectors);
                 trailblazers = filterArr(trailblazers); orbitals = filterArr(orbitals); prisms = filterArr(prisms); repulsors = filterArr(repulsors);
                 mineShrapnels = filterArr(mineShrapnels);
+                staticBeetles = filterArr(staticBeetles); phaseMantises = filterArr(phaseMantises); sniperMosquitos = filterArr(sniperMosquitos);
+                clusterRoaches = filterArr(clusterRoaches); roachMites = filterArr(roachMites); siphonFlies = filterArr(siphonFlies);
+                webWeavers = filterArr(webWeavers); webNodes = filterArr(webNodes); hawkShooters = filterArr(hawkShooters);
                 checkWaveEnd();
             } else {
                 gameOver();
@@ -2103,6 +2725,17 @@
                 orbitals.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyOrbital(i); });
                 prisms.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyPrism(i); });
                 repulsors.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyRepulsor(i); });
+
+                // World 4
+                staticBeetles.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyStaticBeetle(i); });
+                phaseMantises.forEach((e, i) => { if (e.visible && checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyPhaseMantis(i); });
+                sniperMosquitos.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroySniperMosquito(i); });
+                clusterRoaches.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyClusterRoach(i); });
+                roachMites.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyRoachMite(i); });
+                siphonFlies.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroySiphonFly(i); });
+                webWeavers.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyWebWeaver(i); });
+                webNodes.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyWebNode(i); });
+                hawkShooters.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyHawkShooter(i); });
 
                 mineShrapnels.forEach((s, i) => { if (checkLaserHit(s, s.size)) { mineShrapnels.splice(i, 1); spawnParticles(s.x, s.y, COLOR_MINE); } });
                 
@@ -2208,6 +2841,17 @@
                         if (!hit) checkHpEnemy(tornados, destroyTornado); if (!hit) checkHpEnemy(reflectors, destroyReflector);
                         if (!hit) checkHpEnemy(trailblazers, destroyTrailblazer); if (!hit) checkHpEnemy(prisms, destroyPrism);
                         if (!hit) checkHpEnemy(repulsors, destroyRepulsor);
+
+                        // World 4
+                        if (!hit) checkHpEnemy(staticBeetles, destroyStaticBeetle);
+                        if (!hit) checkHpEnemy(phaseMantises, destroyPhaseMantis);
+                        if (!hit) checkHpEnemy(sniperMosquitos, destroySniperMosquito);
+                        if (!hit) checkHpEnemy(clusterRoaches, destroyClusterRoach);
+                        if (!hit) checkHpEnemy(roachMites, destroyRoachMite);
+                        if (!hit) checkHpEnemy(siphonFlies, destroySiphonFly);
+                        if (!hit) checkHpEnemy(webWeavers, destroyWebWeaver);
+                        if (!hit) checkHpEnemy(webNodes, destroyWebNode);
+                        if (!hit) checkHpEnemy(hawkShooters, destroyHawkShooter);
                         
                         // Bosses
                         if (!hit) {
@@ -2256,6 +2900,53 @@
                 if (checkCrash(tornados, destroyTornado, 33)) return; if (checkCrash(reflectors, destroyReflector, 20)) return;
                 if (checkCrash(trailblazers, destroyTrailblazer, 20)) return; if (checkCrash(orbitals, destroyOrbital, 20)) return;
                 if (checkCrash(prisms, destroyPrism, 30)) return; if (checkCrash(repulsors, destroyRepulsor, 20)) return;
+
+                // World 4 crash
+                if (checkCrash(staticBeetles, destroyStaticBeetle, 25)) return;
+                if (checkCrash(phaseMantises, destroyPhaseMantis, 20)) return;
+                if (checkCrash(sniperMosquitos, destroySniperMosquito, 20)) return;
+                if (checkCrash(clusterRoaches, destroyClusterRoach, 35)) return;
+                if (checkCrash(roachMites, destroyRoachMite, 10)) return;
+                if (checkCrash(siphonFlies, destroySiphonFly, 10)) return;
+                if (checkCrash(webWeavers, destroyWebWeaver, 20)) return;
+                if (checkCrash(hawkShooters, destroyHawkShooter, 20)) return;
+
+                // Static Beetle arc: dampen move + rotation for 2s
+                for (let j = staticBeetles.length - 1; j >= 0; j--) {
+                    const sb = staticBeetles[j];
+                    const tips = sb.getArcTips();
+                    const d = pointToSegmentDistance(player.x, player.y, tips.ax, tips.ay, tips.bx, tips.by);
+                    if (d < PLAYER_SIZE + 6) player.dampenTimer = Math.max(player.dampenTimer, 120);
+                }
+
+                // Siphon Fly: drain 15% ult on contact (cooldown per fly)
+                for (let j = siphonFlies.length - 1; j >= 0; j--) {
+                    const sf = siphonFlies[j];
+                    if (sf.drainCooldown > 0) continue;
+                    if (dist(player, sf) < sf.size + PLAYER_SIZE + 6) {
+                        sf.drainCooldown = 30;
+                        player.ultCharge = Math.max(0, player.ultCharge - 15);
+                        updateUltUI();
+                        playSound('shoot');
+                    }
+                }
+
+                // Web Nodes / Lines: grid-lock for 0.5s
+                if (webNodes.length > 0) {
+                    const byId = new Map();
+                    for (let i = 0; i < webNodes.length; i++) byId.set(webNodes[i].id, webNodes[i]);
+                    for (let i = 0; i < webNodes.length; i++) {
+                        const n = webNodes[i];
+                        if (dist(player, n) < PLAYER_SIZE + n.size * 0.6) player.gridLockTimer = Math.max(player.gridLockTimer, 30);
+                        if (n.prevId != null) {
+                            const p = byId.get(n.prevId);
+                            if (p) {
+                                const d = pointToSegmentDistance(player.x, player.y, n.x, n.y, p.x, p.y);
+                                if (d < PLAYER_SIZE + 5) player.gridLockTimer = Math.max(player.gridLockTimer, 30);
+                            }
+                        }
+                    }
+                }
                 
                 // Boss Collision
                 for (let j = bossWorms.length - 1; j >= 0; j--) {
@@ -2457,6 +3148,34 @@
                 orbitals.forEach(e => { e.update(player); e.draw(ctx); });
                 prisms.forEach(e => { e.update(); e.draw(ctx); });
                 repulsors.forEach(e => { e.update(); e.draw(ctx); });
+
+                // World 4
+                // Web lines
+                if (webNodes.length > 0) {
+                    const byId = new Map();
+                    for (let i = 0; i < webNodes.length; i++) byId.set(webNodes[i].id, webNodes[i]);
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(0,255,255,0.35)';
+                    ctx.lineWidth = 2;
+                    for (let i = 0; i < webNodes.length; i++) {
+                        const n = webNodes[i];
+                        if (n.prevId != null) {
+                            const p = byId.get(n.prevId);
+                            if (!p) continue;
+                            ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+                        }
+                    }
+                    ctx.restore();
+                }
+                webNodes.forEach(n => { n.draw(ctx); });
+                staticBeetles.forEach(e => { e.update(player); e.draw(ctx); });
+                phaseMantises.forEach(e => { e.update(player); e.draw(ctx); });
+                sniperMosquitos.forEach(e => { e.update(player); e.draw(ctx); });
+                clusterRoaches.forEach(e => { e.update(player); e.draw(ctx); });
+                roachMites.forEach(e => { e.update(player); e.draw(ctx); });
+                siphonFlies.forEach(e => { e.update(player); e.draw(ctx); });
+                webWeavers.forEach(e => { e.update(player); e.draw(ctx); });
+                hawkShooters.forEach(e => { e.update(player); e.draw(ctx); });
                 
                 bossWorms.forEach(b => { b.update(player); b.draw(ctx); });
                 bossLancers.forEach(b => { b.update(player); b.draw(ctx); });
