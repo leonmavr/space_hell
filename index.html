@@ -1308,34 +1308,101 @@
         }
 
         class TetherTwin {
-            constructor(x, y, tier = 1, partner = null) {
+            constructor(x, y, tier = 1, groupId = 0) {
                 this.x = x; this.y = y; this.tier = tier;
-                this.scale = tier === TIER_LARGE ? 2 : (tier === TIER_MED ? 1.5 : 1);
-                this.hp = tier === TIER_LARGE ? 8 : (tier === TIER_MED ? 6 : 2); this.maxHp = this.hp;
+                this.groupId = groupId;
+                this.tetherId = (typeof window !== 'undefined' && window.__nextTetherId) ? (window.__nextTetherId++) : (TetherTwin.__nextId++);
+                this.scale = tier === TIER_LARGE ? 2.5 : (tier === TIER_MED ? 1.8 : 1.3);
+                this.hp = tier === TIER_LARGE ? 24 : (tier === TIER_MED ? 16 : 6); this.maxHp = this.hp;
                 this.size = 15 * this.scale;
-                this.vx = (Math.random()-0.5)*2; this.vy = (Math.random()-0.5)*2; this.partner = partner; 
+                this.vx = (Math.random()-0.5)*2; this.vy = (Math.random()-0.5)*2;
+                this.dead = false;
             }
+
+            static __nextId = 1;
+
             update() {
                 this.x += this.vx; this.y += this.vy;
+                // Light damping so movement feels less twitchy/violent.
+                this.vx *= 0.985; this.vy *= 0.985;
+
+                // Tiny per-node wander so the group doesn't lock into a single shared direction.
+                this.vx += (Math.random() - 0.5) * 0.02;
+                this.vy += (Math.random() - 0.5) * 0.02;
+
+                // Nudge toward the group's constant velocity so members move together.
+                if (this.groupVx !== undefined) {
+                    const follow = 0.08; // how strongly they adhere to group velocity
+                    this.vx += (this.groupVx - this.vx) * follow;
+                    this.vy += (this.groupVy - this.vy) * follow;
+                }
                 if (this.x < -30) this.x = canvas.width + 30; if (this.x > canvas.width + 30) this.x = -30;
                 if (this.y < -30) this.y = canvas.height + 30; if (this.y > canvas.height + 30) this.y = -30;
-                if (this.partner && !this.partner.dead) {
-                    const dx = this.partner.x - this.x; const dy = this.partner.y - this.y;
-                    const dist = Math.sqrt(dx*dx + dy*dy);
-                    if (dist > 300) { this.vx += (dx/dist) * 0.05; this.vy += (dy/dist) * 0.05; }
-                }
-            }
-            takeDamage(amount) { this.hp -= amount; if (this.hp <= 0) { this.dead = true; return true; } return false; }
-            draw(ctx) {
-                if (this.partner && !this.partner.dead) {
-                    if (this.x < this.partner.x) {
-                        ctx.strokeStyle = COLOR_TETHER; ctx.lineWidth = 4; ctx.shadowColor = COLOR_TETHER; ctx.shadowBlur = 10;
-                        ctx.beginPath(); ctx.moveTo(this.x, this.y); 
-                        const midX = (this.x + this.partner.x)/2 + (Math.random()-0.5)*20;
-                        const midY = (this.y + this.partner.y)/2 + (Math.random()-0.5)*20;
-                        ctx.lineTo(midX, midY); ctx.lineTo(this.partner.x, this.partner.y); ctx.stroke();
+
+                // Cohesion: keep the triangle group somewhat together.
+                const mates = tethers.filter(t => t && !t.dead && t.groupId === this.groupId && t !== this);
+                if (mates.length > 0) {
+                    // Pairwise spring: keeps nodes clustered, but allows them to get very close.
+                    const restDist = 240 * this.scale;   // smaller = tighter cluster (can nearly overlap)
+                    const kPair = 0.0015;                // spring strength
+                    for (const m of mates) {
+                        const dxm = m.x - this.x; const dym = m.y - this.y;
+                        const dm = Math.sqrt(dxm*dxm + dym*dym);
+                        if (dm > 0.001) {
+                            const diff = dm - restDist;
+                            const f = diff * kPair;
+                            this.vx += (dxm / dm) * f;
+                            this.vy += (dym / dm) * f;
+                        }
+                    }
+
+                    let cx = this.x; let cy = this.y;
+                    for (const m of mates) { cx += m.x; cy += m.y; }
+                    cx /= (mates.length + 1);
+                    cy /= (mates.length + 1);
+                    const dx = cx - this.x; const dy = cy - this.y;
+                    const d = Math.sqrt(dx*dx + dy*dy) || 1;
+
+                    // Gentle centroid pull to prevent long separations.
+                    const cohesion_thresh = 80;
+                    if (d > cohesion_thresh) {
+                        const pull = 0.008;
+                        this.vx += (dx/d) * pull;
+                        this.vy += (dy/d) * pull;
+                    }
+
+                    // Soft clamp (prevents sudden slingshots if they get separated).
+                    const maxSpeed = 2.75;
+                    const sp = Math.sqrt(this.vx*this.vx + this.vy*this.vy) || 0;
+                    if (sp > maxSpeed) {
+                        this.vx = (this.vx / sp) * maxSpeed;
+                        this.vy = (this.vy / sp) * maxSpeed;
                     }
                 }
+            }
+
+            takeDamage(amount) {
+                this.hp -= amount;
+                if (this.hp <= 0) { this.dead = true; return true; }
+                return false;
+            }
+
+            draw(ctx) {
+                // Draw beams to other living nodes in the same group, once per edge.
+                const mates = tethers.filter(t => t && !t.dead && t.groupId === this.groupId);
+                for (const other of mates) {
+                    if (other === this) continue;
+                    if (this.tetherId >= other.tetherId) continue;
+                    ctx.strokeStyle = COLOR_TETHER; ctx.lineWidth = 4; ctx.shadowColor = COLOR_TETHER; ctx.shadowBlur = 10;
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    const midX = (this.x + other.x) / 2 + (Math.random() - 0.5) * 20;
+                    const midY = (this.y + other.y) / 2 + (Math.random() - 0.5) * 20;
+                    ctx.lineTo(midX, midY);
+                    ctx.lineTo(other.x, other.y);
+                    ctx.stroke();
+                }
+
                 ctx.save(); ctx.translate(this.x, this.y);
                 ctx.strokeStyle = COLOR_TETHER; ctx.shadowColor = COLOR_TETHER; ctx.shadowBlur = 10; ctx.lineWidth = 2;
                 ctx.scale(this.scale, this.scale);
@@ -2690,11 +2757,33 @@
         function spawnAegis(tier) { const pos = getSafeEdgePosition(); aegises.push(new Aegis(pos.x, pos.y, tier)); }
         function spawnHive(tier) { const pos = getSafeEdgePosition(); hives.push(new Hive(pos.x, pos.y, tier)); }
         function spawnLancer(tier) { const pos = getSafeEdgePosition(); lancers.push(new Lancer(pos.x, pos.y, tier)); }
+        let nextTetherGroupId = 1;
         function spawnTetherTwins(tier) {
+            // Upgraded: spawn a 3-node equilateral "Teth Triangle".
             const pos = getSafeEdgePosition();
-            const t1 = new TetherTwin(pos.x, pos.y, tier);
-            const t2 = new TetherTwin(pos.x + 50, pos.y + 50, tier, t1); 
-            t1.partner = t2; tethers.push(t1); tethers.push(t2);
+            const gid = nextTetherGroupId++;
+
+            const scale = tier === TIER_LARGE ? 2 : (tier === TIER_MED ? 1.5 : 1);
+            const side = 80 * scale;
+            const r = side / Math.sqrt(3);
+            const baseAng = Math.random() * Math.PI * 2;
+
+            // Group velocity: constant slow random vector assigned to all members.
+            const gAngle = Math.random() * Math.PI * 2;
+            const gSpeed = 0.25 + Math.random() * 0.6; // slow base speed
+            const gvx = Math.cos(gAngle) * gSpeed;
+            const gvy = Math.sin(gAngle) * gSpeed;
+
+            for (let k = 0; k < 3; k++) {
+                const a = baseAng + (k / 3) * Math.PI * 2;
+                const x = pos.x + Math.cos(a) * r;
+                const y = pos.y + Math.sin(a) * r;
+                const t = new TetherTwin(x, y, tier, gid);
+                // initialize with the group velocity so they move together
+                t.groupVx = gvx; t.groupVy = gvy;
+                t.vx = gvx; t.vy = gvy;
+                tethers.push(t);
+            }
         }
 
         function spawnTornado(tier) { const pos = getSafeEdgePosition(); tornados.push(new Tornado(pos.x, pos.y, tier)); }
@@ -2771,7 +2860,10 @@
 
             const checkExplode = (arr, destroyFn) => {
                 for (let j = arr.length - 1; j >= 0; j--) {
-                    let e = arr[j]; let pos = e.head || e;
+                    let e = arr[j];
+                    if (!e) continue;
+                    let pos = (e.head && {x: e.head.x, y: e.head.y}) || (e.x !== undefined ? {x: e.x, y: e.y} : null);
+                    if (!pos) continue;
                     if (dist({x,y}, pos) < radius) {
                         if (e.takeDamage) { if(e.takeDamage(5)) destroyFn(j); }
                         else destroyFn(j);
@@ -2826,7 +2918,23 @@
             gameState.score += 50; finishKill(); 
         }
         function destroyLancer(i) { genericDestroy(lancers, i, COLOR_LANCER, 700); }
-        function destroyTether(i) { let t = tethers[i]; if (t.partner) t.partner.partner = null; genericDestroy(tethers, i, COLOR_TETHER, 800); }
+        function destroyTether(i, _fromCollapse = false) {
+            const t = tethers[i];
+            if (!t) return;
+            const gid = t.groupId;
+            genericDestroy(tethers, i, COLOR_TETHER, 800);
+
+            // If two of the triangle nodes die, collapse the group by killing the last one.
+            if (_fromCollapse) return;
+            const remaining = [];
+            for (let k = 0; k < tethers.length; k++) {
+                const e = tethers[k];
+                if (e && !e.dead && e.groupId === gid) remaining.push(k);
+            }
+            if (remaining.length <= 1) {
+                for (let k = remaining.length - 1; k >= 0; k--) destroyTether(remaining[k], true);
+            }
+        }
         function destroyTornado(i) { genericDestroy(tornados, i, COLOR_TORNADO, 600); }
         function destroyReflector(i) { genericDestroy(reflectors, i, COLOR_REFLECTOR, 700); }
         function destroyTrailblazer(i) { genericDestroy(trailblazers, i, COLOR_TRAIL, 700); }
@@ -3263,17 +3371,40 @@
                     if (dist(player, s) < s.size + PLAYER_SIZE) { if (takeDamage(10)) return; mineShrapnels.splice(j, 1); }
                 }
                 
-                // Tether Logic
+                // Tether Logic (Triangle groups): player takes damage if crossing any live beam edge.
                 let beamHit = false;
-                tethers.forEach(t => {
-                    if (!beamHit && t.partner && !t.partner.dead) {
-                        const A = t; const B = t.partner; const P = player; const l2 = dist(A, B)**2;
-                        if (l2 == 0) return;
-                        let tVal = ((P.x - A.x) * (B.x - A.x) + (P.y - A.y) * (B.y - A.y)) / l2; tVal = Math.max(0, Math.min(1, tVal));
-                        const projX = A.x + tVal * (B.x - A.x); const projY = A.y + tVal * (B.y - A.y);
-                        if (Math.sqrt((P.x - projX)**2 + (P.y - projY)**2) < PLAYER_SIZE + 4) { if (takeDamage(1, true)) beamHit = true; }
+                const aliveTethers = tethers.filter(t => t && !t.dead);
+                const groups = new Map();
+                for (const t of aliveTethers) {
+                    const arr = groups.get(t.groupId) || [];
+                    arr.push(t);
+                    groups.set(t.groupId, arr);
+                }
+
+                for (const arr of groups.values()) {
+                    if (arr.length < 2) continue;
+                    for (let i = 0; i < arr.length; i++) {
+                        for (let j = i + 1; j < arr.length; j++) {
+                            if (beamHit) break;
+                            const A = arr[i];
+                            const B = arr[j];
+                            const P = player;
+                            const l2 = dist(A, B) ** 2;
+                            if (l2 === 0) continue;
+                            let tVal = ((P.x - A.x) * (B.x - A.x) + (P.y - A.y) * (B.y - A.y)) / l2;
+                            tVal = Math.max(0, Math.min(1, tVal));
+                            const projX = A.x + tVal * (B.x - A.x);
+                            const projY = A.y + tVal * (B.y - A.y);
+                            if (Math.sqrt((P.x - projX) ** 2 + (P.y - projY) ** 2) < PLAYER_SIZE + 4) {
+                                // apply damage and a 75% slow for 3s (180 frames)
+                                player.slowTimer = Math.max(player.slowTimer || 0, 180);
+                                if (takeDamage(1, true)) beamHit = true;
+                            }
+                        }
+                        if (beamHit) break;
                     }
-                });
+                    if (beamHit) break;
+                }
                 if (beamHit) return;
 
                 // Prism Logic
@@ -3393,7 +3524,7 @@
                 hives.forEach(h => { h.update(player); h.draw(ctx); });
                 drones.forEach(d => { d.update(player); d.draw(ctx); });
                 lancers.forEach(l => { l.update(player); l.draw(ctx); });
-                tethers.forEach(t => { t.update(player); t.draw(ctx); });
+                tethers.forEach(t => { t.update(); t.draw(ctx); });
                 
                 tornados.forEach(e => { e.update(player); e.draw(ctx); });
                 reflectors.forEach(e => { e.update(); e.draw(ctx); });
