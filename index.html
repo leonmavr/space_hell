@@ -901,7 +901,7 @@
         class SpaceWorm {
             constructor(x, y, tier = 1) {
                 this.tier = tier; this.scale = tier === TIER_LARGE ? 2 : (tier === TIER_MED ? 1.5 : 1);
-                this.hp = tier === TIER_LARGE ? 7 : (tier === TIER_MED ? 5 : 1); this.maxHp = this.hp;
+                this.hp = tier === TIER_LARGE ? 9 : (tier === TIER_MED ? 7 : 2); this.maxHp = this.hp;
                 this.head = { x, y }; this.segments = []; for(let i = 0; i < 8; i++) this.segments.push({ x, y });
                 this.angle = 0; this.speed = (3 * (1/this.scale)); 
                 this.wiggleTime = Math.random() * 100; this.radius = 8 * this.scale;
@@ -949,7 +949,7 @@
             constructor(x, y, tier = 1) {
                 this.x = x; this.y = y; this.tier = tier;
                 this.scale = tier === TIER_LARGE ? 2 : (tier === TIER_MED ? 1.5 : 1);
-                this.hp = tier === TIER_LARGE ? 6 : (tier === TIER_MED ? 4 : 1); this.maxHp = this.hp;
+                this.hp = tier === TIER_LARGE ? 7 : (tier === TIER_MED ? 5 : 2); this.maxHp = this.hp;
                 this.size = 20 * this.scale;
                 this.vx = (Math.random() - 0.5) * 3; this.vy = (Math.random() - 0.5) * 3;
                 this.fireCooldown = 100 + Math.random() * 100; this.changeDirTimer = 0;
@@ -1101,7 +1101,7 @@
             constructor(x, y, tier = 1) {
                 this.x = x; this.y = y; this.tier = tier;
                 this.scale = tier === TIER_LARGE ? 2 : (tier === TIER_MED ? 1.5 : 1);
-                this.hp = (tier === TIER_LARGE ? 5 : (tier === TIER_MED ? 3 : 1)) * 3; this.maxHp = this.hp;
+                this.hp = (tier === TIER_LARGE ? 6 : (tier === TIER_MED ? 4 : 1)) * 3; this.maxHp = this.hp;
                 this.size = 30 * this.scale;
                 const centerX = canvas.width / 2; const centerY = canvas.height / 2;
                 const angleToCenter = Math.atan2(centerY - this.y, centerX - this.x);
@@ -1205,7 +1205,7 @@
             constructor(x, y, tier = 1, partner = null) {
                 this.x = x; this.y = y; this.tier = tier;
                 this.scale = tier === TIER_LARGE ? 2 : (tier === TIER_MED ? 1.5 : 1);
-                this.hp = tier === TIER_LARGE ? 5 : (tier === TIER_MED ? 3 : 1); this.maxHp = this.hp;
+                this.hp = tier === TIER_LARGE ? 8 : (tier === TIER_MED ? 6 : 2); this.maxHp = this.hp;
                 this.size = 15 * this.scale;
                 this.vx = (Math.random()-0.5)*2; this.vy = (Math.random()-0.5)*2; this.partner = partner; 
             }
@@ -1244,8 +1244,8 @@
         class Tornado {
             constructor(x, y, tier = 1) {
                 this.x = x; this.y = y; this.tier = tier;
-                this.scale = tier === TIER_LARGE ? 3 : (tier === TIER_MED ? 3 : 2);
-                this.hp = tier * 2; this.maxHp = this.hp;
+                this.scale = tier === TIER_LARGE ? 3.75 : (tier === TIER_MED ? 3 : 2);
+                this.hp = tier * 3; this.maxHp = this.hp;
                 this.size = 15 * this.scale;
                 this.vx = (Math.random() - 0.5) * 2; this.vy = (Math.random() - 0.5) * 2;
                 this.state = 0; this.timer = 0; this.alpha = 1; this.spinAngle = 0;
