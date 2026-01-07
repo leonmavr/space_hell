@@ -341,7 +341,37 @@
         const ctx = canvas.getContext('2d');
         
         const difficulties = ['EASY', 'MEDIUM', 'HARD', 'HELL'];
-        let maxUnlockedWorld = parseInt(localStorage.getItem('neonVoid_maxWorld') || '1');
+
+        const MAX_WORLDS = 6;
+        const WAVES_PER_WORLD = 11;
+
+        function clampInt(n, min, max) {
+            n = parseInt(String(n), 10);
+            if (!Number.isFinite(n)) n = min;
+            return Math.max(min, Math.min(max, n));
+        }
+
+        function loadBestWaveReached() {
+            const savedBest = localStorage.getItem('neonVoid_bestWave');
+            if (savedBest !== null && savedBest !== undefined && savedBest !== '') {
+                return clampInt(savedBest, 1, 999);
+            }
+
+            // Back-compat migration: older builds stored only a max world.
+            const savedMaxWorld = localStorage.getItem('neonVoid_maxWorld');
+            if (savedMaxWorld !== null && savedMaxWorld !== undefined && savedMaxWorld !== '') {
+                const mw = clampInt(savedMaxWorld, 1, MAX_WORLDS);
+                const inferredBestWave = (mw - 1) * WAVES_PER_WORLD + 1;
+                localStorage.setItem('neonVoid_bestWave', String(inferredBestWave));
+                return inferredBestWave;
+            }
+
+            return 1;
+        }
+
+        // World 1 is the only world unlocked by default.
+        let bestWaveReached = loadBestWaveReached();
+        let maxUnlockedWorld = 1;
 
         // Settings State
         let settings = {
@@ -526,17 +556,24 @@
             document.getElementById('val-world').innerText = settings.world;
         }
 
+        function getUnlockedWorldForWave(wave) {
+            const safeWave = Math.max(1, parseInt(String(wave), 10) || 1);
+            const unlocked = Math.floor((safeWave - 1) / WAVES_PER_WORLD) + 1;
+            return clampInt(unlocked, 1, MAX_WORLDS);
+        }
+
+        // Initialize unlocked worlds from saved progress.
+        maxUnlockedWorld = getUnlockedWorldForWave(bestWaveReached);
+
         function checkUnlocks() {
-            if (gameState.wave >= 12 && maxUnlockedWorld < 2) {
-                maxUnlockedWorld = 2; localStorage.setItem('neonVoid_maxWorld', maxUnlockedWorld);
-            }
-            if (gameState.wave >= 23 && maxUnlockedWorld < 3) {
-                maxUnlockedWorld = 3; localStorage.setItem('neonVoid_maxWorld', maxUnlockedWorld);
-            }
-            if (gameState.wave >= 34 && maxUnlockedWorld < 4) {
-                maxUnlockedWorld = 4; localStorage.setItem('neonVoid_maxWorld', maxUnlockedWorld);
-            }
-            if (maxUnlockedWorld > 6) maxUnlockedWorld = 6;
+            bestWaveReached = Math.max(bestWaveReached, Math.max(1, parseInt(String(gameState.wave), 10) || 1));
+            localStorage.setItem('neonVoid_bestWave', String(bestWaveReached));
+
+            const unlockedNow = getUnlockedWorldForWave(bestWaveReached);
+            if (unlockedNow > maxUnlockedWorld) maxUnlockedWorld = unlockedNow;
+
+            // Keep writing legacy key for older code paths / existing saves.
+            localStorage.setItem('neonVoid_maxWorld', String(maxUnlockedWorld));
         }
 
 
@@ -2858,9 +2895,8 @@
                 siphonFlies.length === 0 && webWeavers.length === 0 && hawkShooters.length === 0 &&
                 bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0) {
                 
-                checkUnlocks(); 
-                
                 gameState.wave++;
+                checkUnlocks();
                 setTimeout(startWave, 1000);
             }
         }
@@ -2958,20 +2994,7 @@
 
                 mineShrapnels.forEach((s, i) => { if (checkLaserHit(s, s.size)) { mineShrapnels.splice(i, 1); spawnParticles(s.x, s.y, COLOR_MINE); } });
                 
-                // Bosses (Updated to use reverse loops and add hit feedback)
-                for (let i = bossWorms.length - 1; i >= 0; i--) {
-                    let b = bossWorms[i];
-                    if (checkLaserHit(b.head, b.radius)) {
-                        if (b.takeDamage(0.5)) {
-                            destroyBossWorm(i);
-                        } else if (!b.isInvincible && Math.random() < 0.2) {
-                            // Visual feedback for damage
-                            spawnParticles(b.head.x, b.head.y, COLOR_WORM);
-                        }
-                    }
-                }
-
-                // Lancer Boss and Orbital Boss are immune to laser (Code removed)
+                // Bosses are immune to the ultimate laser — no damage applied here.
             }
 
             // 2. Bullets
