@@ -330,7 +330,7 @@
     </div>
 
     <div class="controls-hint" id="game-controls-hint" style="display:none;">
-        [W] THRUST &nbsp; [A/D] ROTATE &nbsp; [SPACE] SHOOT &nbsp; [SHIFT] ULTIMATE LASER &nbsp; [P] PAUSE
+        [W] THRUST &nbsp; [A/D] ROTATE &nbsp; [SPACE] SHOOT &nbsp; [SHIFT] ULTIMATE LASER &nbsp; [F] AUTOFIRE &nbsp; [P] PAUSE
     </div>
 
     <canvas id="gameCanvas"></canvas>
@@ -359,7 +359,8 @@
             wave: 1,
             lives: 3,
             gameOver: false,
-            paused: false
+            paused: false,
+            autoFire: false
         };
 
         // Inputs
@@ -658,7 +659,7 @@
                 this.segments = [];
                 for(let i = 0; i < 12; i++) this.segments.push({ x, y });
                 this.angle = 0;
-                this.baseSpeed = this.type === 'fast' ? 3.8 : 3;
+                this.baseSpeed = this.type === 'fast' ? 3.5 : 3;
                 this.speed = this.baseSpeed;
                 this.dashTimer = 0; this.isDashing = false;
                 this.wiggleTime = Math.random() * 100;
@@ -678,11 +679,15 @@
                     if (!this.isDashing) {
                         if (this.dashTimer > 300) { this.isDashing = true; this.dashTimer = 0; this.speed = 5.5; }
                     } else {
-                        // Dash duration: 3 seconds (at 60fps)
-                        if (this.dashTimer > 180) { this.isDashing = false; this.dashTimer = 0; this.speed = this.baseSpeed; }
+                        // Dash duration: 160 frames @60fps
+                        if (this.dashTimer > 160) { this.isDashing = false; this.dashTimer = 0; this.speed = this.baseSpeed; }
                     }
                 }
-                const dx = player.x - this.head.x; const dy = player.y - this.head.y;
+                // Wrap-aware chasing: use the shortest vector on a toroidal screen.
+                let dx = player.x - this.head.x;
+                let dy = player.y - this.head.y;
+                if (Math.abs(dx) > canvas.width / 2) dx -= Math.sign(dx) * canvas.width;
+                if (Math.abs(dy) > canvas.height / 2) dy -= Math.sign(dy) * canvas.height;
                 const targetAngle = Math.atan2(dy, dx);
                 let diff = targetAngle - this.angle;
                 while (diff < -Math.PI) diff += Math.PI * 2;
@@ -692,10 +697,11 @@
                 const wiggle = Math.sin(this.wiggleTime) * 0.3;
                 this.head.x += Math.cos(this.angle + wiggle) * this.speed;
                 this.head.y += Math.sin(this.angle + wiggle) * this.speed;
-                if (this.head.x < this.radius) { this.head.x = this.radius; this.angle = Math.PI - this.angle; }
-                if (this.head.x > canvas.width - this.radius) { this.head.x = canvas.width - this.radius; this.angle = Math.PI - this.angle; }
-                if (this.head.y < this.radius) { this.head.y = this.radius; this.angle = -this.angle; }
-                if (this.head.y > canvas.height - this.radius) { this.head.y = canvas.height - this.radius; this.angle = -this.angle; }
+                // Wrap instead of bouncing off borders.
+                if (this.head.x < 0) this.head.x += canvas.width;
+                if (this.head.x > canvas.width) this.head.x -= canvas.width;
+                if (this.head.y < 0) this.head.y += canvas.height;
+                if (this.head.y > canvas.height) this.head.y -= canvas.height;
                 let prev = this.head;
                 for(let i = 0; i < this.segments.length; i++) {
                     let seg = this.segments[i];
@@ -723,17 +729,51 @@
                 ctx.save();
                 if (this.isInvincible) { ctx.strokeStyle = '#fff'; ctx.fillStyle = '#fcc'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 40; } 
                 else { ctx.strokeStyle = '#f00'; ctx.fillStyle = '#600'; ctx.shadowColor = '#f00'; ctx.shadowBlur = 20; }
+
+                // Draw antennae using wrap-aware shortest segments to avoid long cross-screen lines.
+                const W = canvas.width; const H = canvas.height;
+                const wrapPointNear = (ax, ay, bx, by) => {
+                    let x = bx; let y = by;
+                    let dx = x - ax; let dy = y - ay;
+                    if (Math.abs(dx) > W / 2) x -= Math.sign(dx) * W;
+                    if (Math.abs(dy) > H / 2) y -= Math.sign(dy) * H;
+                    return { x, y };
+                };
+                const drawWrappedLine = (ax, ay, bx, by) => {
+                    const p = wrapPointNear(ax, ay, bx, by);
+                    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(p.x, p.y); ctx.stroke();
+                    const sx = (p.x < 0) ? W : (p.x > W) ? -W : 0;
+                    const sy = (p.y < 0) ? H : (p.y > H) ? -H : 0;
+                    if (sx !== 0 || sy !== 0) {
+                        ctx.beginPath(); ctx.moveTo(ax + sx, ay + sy); ctx.lineTo(p.x + sx, p.y + sy); ctx.stroke();
+                    }
+                    return p;
+                };
+
                 ctx.beginPath(); ctx.arc(this.head.x, this.head.y, this.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                 for(let i = 0; i < this.segments.length; i++) {
                     const s = this.segments[i]; const size = (6 * this.scale) * (1 - i/14) + 5;
                     ctx.beginPath(); ctx.arc(s.x, s.y, size, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                 }
-                ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(this.head.x, this.head.y); ctx.lineTo(this.ant1.x, this.ant1.y);
-                ctx.moveTo(this.head.x, this.head.y); ctx.lineTo(this.ant2.x, this.ant2.y); ctx.stroke();
-                ctx.strokeStyle = '#0ff'; ctx.shadowColor = '#0ff'; ctx.beginPath(); ctx.moveTo(this.ant1.x, this.ant1.y);
-                const midX = (this.ant1.x + this.ant2.x)/2 + (Math.random()-0.5)*10;
-                const midY = (this.ant1.y + this.ant2.y)/2 + (Math.random()-0.5)*10;
-                ctx.lineTo(midX, midY); ctx.lineTo(this.ant2.x, this.ant2.y); ctx.stroke();
+                ctx.lineWidth = 2;
+                const a1 = drawWrappedLine(this.head.x, this.head.y, this.ant1.x, this.ant1.y);
+                const a2 = drawWrappedLine(this.head.x, this.head.y, this.ant2.x, this.ant2.y);
+
+                // Electric arc between antenna tips (also wrap-aware)
+                ctx.strokeStyle = '#0ff'; ctx.shadowColor = '#0ff';
+                const midX = (a1.x + a2.x) / 2 + (Math.random() - 0.5) * 10;
+                const midY = (a1.y + a2.y) / 2 + (Math.random() - 0.5) * 10;
+                ctx.beginPath(); ctx.moveTo(a1.x, a1.y); ctx.lineTo(midX, midY); ctx.lineTo(a2.x, a2.y); ctx.stroke();
+                // If points are outside view due to wrapping, draw a shifted copy
+                const sx = ((a1.x < 0 || a2.x < 0) ? W : (a1.x > W || a2.x > W) ? -W : 0);
+                const sy = ((a1.y < 0 || a2.y < 0) ? H : (a1.y > H || a2.y > H) ? -H : 0);
+                if (sx !== 0 || sy !== 0) {
+                    ctx.beginPath();
+                    ctx.moveTo(a1.x + sx, a1.y + sy);
+                    ctx.lineTo(midX + sx, midY + sy);
+                    ctx.lineTo(a2.x + sx, a2.y + sy);
+                    ctx.stroke();
+                }
                 drawHpBar(ctx, this.hp, this.maxHp, this.radius + 20, this.scale, 0, this.head.x, this.head.y);
                 ctx.restore();
             }
@@ -742,7 +782,7 @@
         class BossLancer {
             constructor(x, y) {
                 this.x = x; this.y = y; this.scale = 3.25;
-                this.hp = 20; this.maxHp = this.hp;
+                this.hp = 22; this.maxHp = this.hp;
                 this.size = 15 * this.scale;
                 this.vx = 0; this.vy = 0; this.angle = 0;
                 this.state = 0; this.moveTimer = Math.random() * 100;
@@ -759,14 +799,14 @@
                     this.abilityTimer = 0;
                 }
                 if (this.state === 0) {
-                    this.moveTimer++; this.x += this.vx; this.y += this.vy; this.vx *= 0.6; this.vy *= 0.6;
+                    this.moveTimer++; this.x += this.vx; this.y += this.vy; this.vx *= 0.75; this.vy *= 0.75;
                     const dx = player.x - this.x; const dy = player.y - this.y;
                     this.angle = Math.atan2(dy, dx);
-                    if (this.moveTimer > 120) { this.state = 1; this.moveTimer = 0; }
+                    if (this.moveTimer > 100) { this.state = 1; this.moveTimer = 0; }
                 } else if (this.state === 1) {
                     this.moveTimer++; const dx = player.x - this.x; const dy = player.y - this.y;
                     this.angle = Math.atan2(dy, dx);
-                    if (this.moveTimer > 60) {
+                    if (this.moveTimer > 50) {
                         this.state = 2; this.moveTimer = 0; const s = 14; 
                         this.vx = Math.cos(this.angle) * s; this.vy = Math.sin(this.angle) * s;
                     }
@@ -2223,7 +2263,8 @@
                 updateUltUI();
 
                 if (this.fireCooldown > 0) this.fireCooldown--;
-                if (keys.space && this.fireCooldown <= 0 && !this.ultActive) this.shoot();
+                const wantsToFire = keys.space || gameState.autoFire;
+                if (wantsToFire && this.fireCooldown <= 0 && !this.ultActive) this.shoot();
                 if (this.invulnerable > 0) this.invulnerable--;
                 
                 let status = "";
@@ -2301,6 +2342,10 @@
                 if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.d = true;
                 if (e.key === ' ') keys.space = true;
                 if (e.key === 'Shift') keys.shift = true;
+                if ((e.key === 'f' || e.key === 'F') && !e.repeat) {
+                    gameState.autoFire = !gameState.autoFire;
+                    if (player) createFloatingText(gameState.autoFire ? 'AUTO FIRE ON' : 'AUTO FIRE OFF', player.x, player.y);
+                }
                 if (e.key === 'p' || e.key === 'P') togglePause();
             });
             window.addEventListener('keyup', e => {
@@ -2402,6 +2447,7 @@
             gameState.score = 0;
             // gameState.wave is already set by Start Game logic
             gameState.gameOver = false;
+            gameState.autoFire = false;
             document.getElementById('game-over-screen').style.display = 'none';
             document.getElementById('score-display').innerText = 'SCORE: 0';
             updateHealthUI();
@@ -3126,7 +3172,18 @@
                     let bWorm = bossWorms[j];
                     if (dist(player, bWorm.head) < bWorm.radius + PLAYER_SIZE) { if(takeDamage(40)) return; }
                     // Antennae line collision
-                    const A = bWorm.ant1; const B = bWorm.ant2; const l2 = dist(A, B)**2;
+                    // Use wrap-aware points near the head to avoid phantom long lines.
+                    const W = canvas.width; const H = canvas.height;
+                    const wrapPointNear = (ax, ay, bx, by) => {
+                        let x = bx; let y = by;
+                        let dx = x - ax; let dy = y - ay;
+                        if (Math.abs(dx) > W / 2) x -= Math.sign(dx) * W;
+                        if (Math.abs(dy) > H / 2) y -= Math.sign(dy) * H;
+                        return { x, y };
+                    };
+                    const A = wrapPointNear(bWorm.head.x, bWorm.head.y, bWorm.ant1.x, bWorm.ant1.y);
+                    const B = wrapPointNear(bWorm.head.x, bWorm.head.y, bWorm.ant2.x, bWorm.ant2.y);
+                    const l2 = dist(A, B)**2;
                     if (l2 > 0) {
                         let t = ((player.x - A.x) * (B.x - A.x) + (player.y - A.y) * (B.y - A.y)) / l2; t = Math.max(0, Math.min(1, t));
                         const projX = A.x + t * (B.x - A.x); const projY = A.y + t * (B.y - A.y);
@@ -3361,7 +3418,8 @@
                 // Boss Lancer Level Armor Drop
                 if (gameState.wave === 22) {
                     bossArmorTimer++;
-                    if (bossArmorTimer > 400) { 
+                    const armor_drop_interval = 700;
+                    if (bossArmorTimer > armor_drop_interval) { 
                         bossArmorTimer = 0;
                         const bx = Math.random() * (canvas.width - 100) + 50; const by = Math.random() * (canvas.height - 100) + 50;
                         bonuses.push(new Bonus(bx, by, 2)); 
