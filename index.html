@@ -436,6 +436,10 @@
         let webNodes = [];
         let hawkShooters = [];
 
+        // Boss Spider (Wave 44)
+        let bossSpiders = [];
+        let bossWebGroupIds = new Set();
+
         let nextWebGroupId = 1;
         let nextWebNodeId = 1;
 
@@ -2164,6 +2168,267 @@
             }
         }
 
+        class BossSpider {
+            constructor() {
+                // Spawn centered
+                this.x = canvas.width / 2;
+                this.y = canvas.height / 2;
+
+                // Visuals: same as WebWeaver but 5x
+                this.tier = TIER_LARGE;
+                const baseScale = 1.1;
+                this.scale = baseScale * 5;
+                this.size = 18 * this.scale;
+
+                // Boss stats
+                this.hp = 260;
+                this.maxHp = this.hp;
+
+                // Movement
+                this.vx = (Math.random() - 0.5) * 0.8;
+                this.vy = (Math.random() - 0.5) * 0.8;
+
+                // Web
+                this.webGroupId = nextWebGroupId++;
+                this.webCenterX = canvas.width / 2;
+                this.webCenterY = canvas.height / 2;
+                this.dropTimer = 30;
+                this.lastNodeId = null;
+                this.nodesDropped = 0;
+                this.maxNodes = 24;
+
+                // Animation (copied from WebWeaver)
+                this.walkT = Math.random() * 1000;
+                this.legPhase = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
+                this.footPhase = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
+
+                // Frenzy: every 10s.
+                // New behavior:
+                // - Pre-frenzy marking: 0.5s flicker on 5 spots
+                // - Frenzy dash: visits the 5 spots in straight lines, then returns to pre-frenzy position
+                this.frenzyCycleTimer = 0;
+                this.frenzyState = 0; // 0=idle, 1=marking, 2=dashing
+                this.markTimer = 0;
+                this.dashTimer = 0;
+                this.frenzySpots = [];
+                this.dashWaypoints = [];
+                this.dashIndex = 0;
+                this.dashSpeed = 0;
+                this.preFrenzyX = this.x;
+                this.preFrenzyY = this.y;
+                this.preFrenzyVx = this.vx;
+                this.preFrenzyVy = this.vy;
+
+                bossWebGroupIds.add(this.webGroupId);
+            }
+
+            isFrenzy() { return this.frenzyState !== 0; }
+
+            beginFrenzy(player) {
+                this.frenzyState = 1;
+                this.markTimer = 30; // 0.5s
+                this.dashTimer = 0;
+                this.frenzySpots = [];
+
+                // Save position and movement so we can return cleanly.
+                this.preFrenzyX = this.x;
+                this.preFrenzyY = this.y;
+                this.preFrenzyVx = this.vx;
+                this.preFrenzyVy = this.vy;
+
+                const pad = this.size + 12;
+                const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+                const randSpot = () => ({
+                    x: pad + Math.random() * (canvas.width - pad * 2),
+                    y: pad + Math.random() * (canvas.height - pad * 2)
+                });
+
+                // Spot ordering matters for fairness:
+                // - Spot 1 is random (player has time to react)
+                // - Spot 2 is very close to the player
+                // - Spots 3-5 are random
+                this.frenzySpots.push(randSpot());
+
+                if (player && player.x !== undefined && player.y !== undefined) {
+                    const closeR = 60;
+                    const a = Math.random() * Math.PI * 2;
+                    const r = Math.random() * closeR;
+                    const px = clamp(player.x + Math.cos(a) * r, pad, canvas.width - pad);
+                    const py = clamp(player.y + Math.sin(a) * r, pad, canvas.height - pad);
+                    this.frenzySpots.push({ x: px, y: py });
+                } else {
+                    this.frenzySpots.push(randSpot());
+                }
+                while (this.frenzySpots.length < 5) this.frenzySpots.push(randSpot());
+            }
+
+            startDash() {
+                this.frenzyState = 2;
+                this.dashTimer = 220; // 220 frames
+                this.dashIndex = 0;
+
+                // Build path: 5 spots, then return to the start position.
+                this.dashWaypoints = (this.frenzySpots || []).slice(0, 5);
+                this.dashWaypoints.push({ x: this.preFrenzyX, y: this.preFrenzyY });
+
+                // Compute constant dash speed so we finish the whole route within dashTimer frames.
+                let total = 0;
+                let px = this.preFrenzyX;
+                let py = this.preFrenzyY;
+                for (let i = 0; i < this.dashWaypoints.length; i++) {
+                    const w = this.dashWaypoints[i];
+                    total += Math.hypot(w.x - px, w.y - py);
+                    px = w.x;
+                    py = w.y;
+                }
+                this.dashSpeed = Math.max(6, total / Math.max(1, this.dashTimer));
+
+                // Start exactly at the recorded pre-frenzy position.
+                this.x = this.preFrenzyX;
+                this.y = this.preFrenzyY;
+            }
+
+            updateDashMovement() {
+                if (this.dashIndex >= this.dashWaypoints.length) return;
+
+                let remainingStep = this.dashSpeed;
+                while (remainingStep > 0 && this.dashIndex < this.dashWaypoints.length) {
+                    const t = this.dashWaypoints[this.dashIndex];
+                    const dx = t.x - this.x;
+                    const dy = t.y - this.y;
+                    const d = Math.hypot(dx, dy);
+                    if (d <= remainingStep || d < 0.0001) {
+                        this.x = t.x;
+                        this.y = t.y;
+                        remainingStep -= d;
+                        this.dashIndex++;
+                    } else {
+                        this.x += (dx / d) * remainingStep;
+                        this.y += (dy / d) * remainingStep;
+                        remainingStep = 0;
+                    }
+                }
+            }
+
+            update(player) {
+                // Frenzy timing
+                if (this.frenzyState === 0) {
+                    this.frenzyCycleTimer++;
+                    if (this.frenzyCycleTimer >= 600) { // 10s
+                        this.frenzyCycleTimer = 0;
+                        this.beginFrenzy(player);
+                    }
+                } else if (this.frenzyState === 1) {
+                    // Marking phase (flicker spots) before dashing.
+                    this.markTimer--;
+                    // Hold still during marking.
+                    if (this.markTimer <= 0) this.startDash();
+                } else if (this.frenzyState === 2) {
+                    this.dashTimer--;
+                    this.updateDashMovement();
+                    if (this.dashTimer <= 0 || this.dashIndex >= this.dashWaypoints.length) {
+                        // Snap back to the exact pre-frenzy position, then resume normal drift.
+                        this.x = this.preFrenzyX;
+                        this.y = this.preFrenzyY;
+                        this.vx = this.preFrenzyVx;
+                        this.vy = this.preFrenzyVy;
+                        this.frenzyState = 0;
+                    }
+                }
+
+                // Slow creep (same idea as WebWeaver). Disabled while marking/dashing.
+                if (this.frenzyState === 0) {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    if (Math.random() < 0.01) {
+                        this.vx = (Math.random() - 0.5) * 0.55;
+                        this.vy = (Math.random() - 0.5) * 0.55;
+                    }
+                }
+
+                const speed = Math.hypot(this.vx, this.vy);
+                this.walkT += 0.06 + Math.min(0.10, speed * 0.05);
+
+                // Keep on-screen
+                const pad = this.size + 4;
+                if (this.x < pad) { this.x = pad; if (this.vx < 0) this.vx = -this.vx; }
+                if (this.x > canvas.width - pad) { this.x = canvas.width - pad; if (this.vx > 0) this.vx = -this.vx; }
+                if (this.y < pad) { this.y = pad; if (this.vy < 0) this.vy = -this.vy; }
+                if (this.y > canvas.height - pad) { this.y = canvas.height - pad; if (this.vy > 0) this.vy = -this.vy; }
+
+                // Web dropping (same as WebWeaver but 5x spacing and centered)
+                this.dropTimer++;
+                let currentNodes = 0;
+                for (let i = 0; i < webNodes.length; i++) if (webNodes[i].groupId === this.webGroupId) currentNodes++;
+                const dropThreshold = Math.max(0, this.maxNodes - 4);
+
+                if (this.dropTimer > 25 && currentNodes <= dropThreshold) {
+                    this.dropTimer = 0;
+                    const padN = this.size + 6;
+                    const radius = 140 * 5;
+                    const minStep = 90 * 5;
+
+                    let prev = null;
+                    if (this.lastNodeId != null) {
+                        for (let i = 0; i < webNodes.length; i++) {
+                            if (webNodes[i].id === this.lastNodeId) { prev = webNodes[i]; break; }
+                        }
+                    }
+
+                    const cx = Math.max(padN, Math.min(canvas.width - padN, this.webCenterX));
+                    const cy = Math.max(padN, Math.min(canvas.height - padN, this.webCenterY));
+
+                    let nx = cx;
+                    let ny = cy;
+                    for (let attempt = 0; attempt < 14; attempt++) {
+                        const a = Math.random() * Math.PI * 2;
+                        const r = radius * Math.sqrt(Math.random());
+                        const tx = Math.max(padN, Math.min(canvas.width - padN, cx + Math.cos(a) * r));
+                        const ty = Math.max(padN, Math.min(canvas.height - padN, cy + Math.sin(a) * r));
+                        if (!prev || Math.hypot(tx - prev.x, ty - prev.y) >= minStep) { nx = tx; ny = ty; break; }
+                        nx = tx; ny = ty;
+                    }
+
+                    const node = new WebNode(nx, ny, this.webGroupId, this.lastNodeId);
+                    this.lastNodeId = node.id;
+                    this.nodesDropped++;
+                    webNodes.push(node);
+                    playSound('enemyShoot');
+                }
+            }
+
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+
+            draw(ctx) {
+                // Reuse the WebWeaver drawing style.
+                WebWeaver.prototype.draw.call(this, ctx);
+
+                // Pre-frenzy: flicker 4 marked dash targets
+                if (this.frenzyState === 1 && this.frenzySpots && this.frenzySpots.length >= 5) {
+                    const flickerOn = (Math.floor(this.markTimer / 4) % 2) === 0;
+                    if (flickerOn) {
+                        ctx.save();
+                        ctx.lineWidth = 2;
+                        ctx.strokeStyle = '#0ff';
+                        for (let i = 0; i < 5; i++) {
+                            const p = this.frenzySpots[i];
+                            const r = 16;
+                            ctx.beginPath();
+                            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+                            ctx.stroke();
+                            ctx.beginPath();
+                            ctx.moveTo(p.x - r, p.y);
+                            ctx.lineTo(p.x + r, p.y);
+                            ctx.moveTo(p.x, p.y - r);
+                            ctx.lineTo(p.x, p.y + r);
+                            ctx.stroke();
+                        }
+                        ctx.restore();
+                    }
+                }
+            }
+        }
+
         class HawkShooter {
             constructor(x, y, tier = TIER_SMALL) {
                 this.x = x; this.y = y; this.tier = tier;
@@ -2554,6 +2819,8 @@
             tornados = []; reflectors = []; trailblazers = []; orbitals = []; prisms = []; repulsors = [];
             staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
             siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
+            bossSpiders = [];
+            bossWebGroupIds = new Set();
             nextWebGroupId = 1; nextWebNodeId = 1;
             mineShrapnels = [];
             bossWorms = [];
@@ -2577,6 +2844,8 @@
             tornados = []; reflectors = []; trailblazers = []; orbitals = []; prisms = []; repulsors = [];
             staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
             siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
+            bossSpiders = [];
+            bossWebGroupIds = new Set();
             nextWebGroupId = 1; nextWebNodeId = 1;
             mineShrapnels = [];
             bossWorms = [];
@@ -2593,9 +2862,10 @@
             webNodes = [];
             nextWebGroupId = 1;
             nextWebNodeId = 1;
+            bossWebGroupIds = new Set();
             
-            // Cleanup Powerups at start of boss wave
-            if (gameState.wave === 11 || gameState.wave === 22 || gameState.wave === 33) {
+                // Cleanup Powerups at start of boss wave
+                if (gameState.wave === 11 || gameState.wave === 22 || gameState.wave === 33 || gameState.wave === 44) {
                  bonuses = []; 
                  if (player) {
                     player.shotLevel = 1; player.shotTimer = 0; player.rateLevel = 0; player.rateTimer = 0; player.reverseTimer = 0;
@@ -2628,6 +2898,12 @@
             // BOSS WAVE 3 (Orbital) - Wave 33
             if (gameState.wave === 33) {
                 bossOrbitals.push(new BossOrbital(canvas.width/2, -200));
+                return;
+            }
+
+            // BOSS WAVE 4 (Spider) - Wave 44
+            if (gameState.wave === 44) {
+                bossSpiders.push(new BossSpider());
                 return;
             }
 
@@ -2888,6 +3164,7 @@
             checkExplode(trailblazers, destroyTrailblazer); checkExplode(orbitals, destroyOrbital); checkExplode(prisms, destroyPrism);
             checkExplode(repulsors, destroyRepulsor); checkExplode(bossWorms, destroyBossWorm); checkExplode(bossLancers, destroyBossLancer);
             checkExplode(bossOrbitals, destroyBossOrbital);
+            checkExplode(bossSpiders, destroyBossSpider);
         }
 
         function createFloatingText(text, x, y) {
@@ -2903,6 +3180,20 @@
         function destroyBossOrbital(i) { genericDestroy(bossOrbitals, i, '#f00', 8000); }
         function destroyBossLancer(i) { genericDestroy(bossLancers, i, '#f08', 6000); }
         function destroyBossWorm(i) { genericDestroy(bossWorms, i, '#f00', 5000); }
+
+        function destroyBossSpider(i) {
+            const s = bossSpiders[i];
+            if (!s) return;
+            const gid = s.webGroupId;
+            bossWebGroupIds.delete(gid);
+            for (let j = webNodes.length - 1; j >= 0; j--) {
+                if (webNodes[j].groupId === gid) {
+                    const n = webNodes.splice(j, 1)[0];
+                    spawnParticles(n.x, n.y, '#0ff');
+                }
+            }
+            genericDestroy(bossSpiders, i, '#0ff', 12000);
+        }
 
         function genericDestroy(arr, index, color, scoreBase) {
              let e = arr[index]; arr.splice(index, 1);
@@ -3012,7 +3303,7 @@
                 tornados.length === 0 && reflectors.length === 0 && trailblazers.length === 0 && orbitals.length === 0 && prisms.length === 0 && repulsors.length === 0 &&
                 staticBeetles.length === 0 && phaseMantises.length === 0 && sniperMosquitos.length === 0 && clusterRoaches.length === 0 && roachMites.length === 0 &&
                 siphonFlies.length === 0 && webWeavers.length === 0 && hawkShooters.length === 0 &&
-                bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0) {
+                bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0 && bossSpiders.length === 0) {
                 
                 gameState.wave++;
                 checkUnlocks();
@@ -3108,6 +3399,7 @@
                 roachMites.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyRoachMite(i); });
                 siphonFlies.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroySiphonFly(i); });
                 webWeavers.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyWebWeaver(i); });
+                // Boss Spider is immune to ultimate laser.
                 webNodes.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyWebNode(i); });
                 hawkShooters.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyHawkShooter(i); });
 
@@ -3211,6 +3503,7 @@
                         if (!hit) checkHpEnemy(roachMites, destroyRoachMite);
                         if (!hit) checkHpEnemy(siphonFlies, destroySiphonFly);
                         if (!hit) checkHpEnemy(webWeavers, destroyWebWeaver);
+                        if (!hit) checkHpEnemy(bossSpiders, destroyBossSpider);
                         if (!hit) checkHpEnemy(webNodes, destroyWebNode);
                         if (!hit) checkHpEnemy(hawkShooters, destroyHawkShooter);
                         
@@ -3270,6 +3563,7 @@
                 if (checkCrash(roachMites, destroyRoachMite, 10)) return;
                 if (checkCrash(siphonFlies, destroySiphonFly, 10)) return;
                 if (checkCrash(webWeavers, destroyWebWeaver, 20)) return;
+                if (checkCrash(bossSpiders, destroyBossSpider, 40)) return;
                 if (checkCrash(hawkShooters, destroyHawkShooter, 20)) return;
 
                 // Static Beetle arc: dampen move + rotation for 2s
@@ -3298,12 +3592,19 @@
                     for (let i = 0; i < webNodes.length; i++) byId.set(webNodes[i].id, webNodes[i]);
                     for (let i = 0; i < webNodes.length; i++) {
                         const n = webNodes[i];
-                        if (dist(player, n) < PLAYER_SIZE + n.size * 0.6) player.gridLockTimer = Math.max(player.gridLockTimer, 30);
+                        const isBossWeb = bossWebGroupIds && bossWebGroupIds.has(n.groupId);
+                        if (dist(player, n) < PLAYER_SIZE + n.size * 0.6) {
+                            if (isBossWeb) player.slowTimer = Math.max(player.slowTimer || 0, 180);
+                            else player.gridLockTimer = Math.max(player.gridLockTimer, 30);
+                        }
                         if (n.prevId != null) {
                             const p = byId.get(n.prevId);
                             if (p) {
                                 const d = pointToSegmentDistance(player.x, player.y, n.x, n.y, p.x, p.y);
-                                if (d < PLAYER_SIZE + 5) player.gridLockTimer = Math.max(player.gridLockTimer, 30);
+                                if (d < PLAYER_SIZE + 5) {
+                                    if (isBossWeb) player.slowTimer = Math.max(player.slowTimer || 0, 180);
+                                    else player.gridLockTimer = Math.max(player.gridLockTimer, 30);
+                                }
                             }
                         }
                     }
@@ -3570,6 +3871,7 @@
                 roachMites.forEach(e => { e.update(player); e.draw(ctx); });
                 siphonFlies.forEach(e => { e.update(player); e.draw(ctx); });
                 webWeavers.forEach(e => { e.update(player); e.draw(ctx); });
+                bossSpiders.forEach(b => { b.update(player); b.draw(ctx); });
                 hawkShooters.forEach(e => { e.update(player); e.draw(ctx); });
                 
                 bossWorms.forEach(b => { b.update(player); b.draw(ctx); });
