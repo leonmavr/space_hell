@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Neon Void Hunter</title>
+    <title>Space Hell</title>
     <style>
         body {
             margin: 0;
@@ -438,6 +438,7 @@
 
         // Boss Spider (Wave 44)
         let bossSpiders = [];
+        let bossSpiderlings = [];
         let bossWebGroupIds = new Set();
 
         let nextWebGroupId = 1;
@@ -2170,9 +2171,9 @@
 
         class BossSpider {
             constructor() {
-                // Spawn centered
-                this.x = canvas.width / 2;
-                this.y = canvas.height / 2;
+                // Spawn roughly centered
+                this.x = canvas.width / 2 + (Math.random() - 0.5) * 80;
+                this.y = canvas.height / 2 + (Math.random() - 0.5) * 80;
 
                 // Visuals: same as WebWeaver but 5x
                 this.tier = TIER_LARGE;
@@ -2181,7 +2182,7 @@
                 this.size = 18 * this.scale;
 
                 // Boss stats
-                this.hp = 260;
+                this.hp = 280;
                 this.maxHp = this.hp;
 
                 // Movement
@@ -2218,6 +2219,9 @@
                 this.preFrenzyY = this.y;
                 this.preFrenzyVx = this.vx;
                 this.preFrenzyVy = this.vy;
+
+                // Spiderling spawns from web nodes
+                this.spiderlingTick = 0;
 
                 bossWebGroupIds.add(this.webGroupId);
             }
@@ -2311,6 +2315,22 @@
             }
 
             update(player) {
+                // Every 1s, each boss web node has a 5% chance to spawn a tier 1 spiderling (cap 30).
+                this.spiderlingTick++;
+                if (this.spiderlingTick >= 60) {
+                    this.spiderlingTick = 0;
+                    if (player && bossSpiderlings.length < 30) {
+                        for (let i = 0; i < webNodes.length; i++) {
+                            const n = webNodes[i];
+                            if (!n || n.groupId !== this.webGroupId) continue;
+                            if (bossSpiderlings.length >= 30) break;
+                            if (Math.random() < 0.05) {
+                                bossSpiderlings.push(new BossSpiderling(n.x, n.y, TIER_SMALL));
+                            }
+                        }
+                    }
+                }
+
                 // Frenzy timing
                 if (this.frenzyState === 0) {
                     this.frenzyCycleTimer++;
@@ -2426,6 +2446,60 @@
                         ctx.restore();
                     }
                 }
+            }
+        }
+
+        class BossSpiderling {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x;
+                this.y = y;
+                this.tier = tier;
+                this.scale = 0.85;
+                this.size = 14 * this.scale;
+                this.hp = 2;
+                this.maxHp = this.hp;
+                this.vx = 0;
+                this.vy = 0;
+
+                // Reuse WebWeaver leg animation
+                this.walkT = Math.random() * 1000;
+                this.legPhase = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
+                this.footPhase = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
+            }
+
+            update(player) {
+                if (!player) return;
+                const a = Math.atan2(player.y - this.y, player.x - this.x);
+
+                // Simple chase with damping
+                const accel = 0.22;
+                this.vx += Math.cos(a) * accel;
+                this.vy += Math.sin(a) * accel;
+
+                const maxS = 4.2;
+                const s = Math.hypot(this.vx, this.vy) || 1;
+                if (s > maxS) { this.vx = (this.vx / s) * maxS; this.vy = (this.vy / s) * maxS; }
+
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vx *= 0.96;
+                this.vy *= 0.96;
+
+                // Wrap like other small chasers
+                const m = 60;
+                if (this.x < -m) this.x = canvas.width + m;
+                if (this.x > canvas.width + m) this.x = -m;
+                if (this.y < -m) this.y = canvas.height + m;
+                if (this.y > canvas.height + m) this.y = -m;
+
+                const speed = Math.hypot(this.vx, this.vy);
+                this.walkT += 0.08 + Math.min(0.14, speed * 0.08);
+            }
+
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+
+            draw(ctx) {
+                WebWeaver.prototype.draw.call(this, ctx);
             }
         }
 
@@ -2820,6 +2894,7 @@
             staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
             siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
             bossSpiders = [];
+            bossSpiderlings = [];
             bossWebGroupIds = new Set();
             nextWebGroupId = 1; nextWebNodeId = 1;
             mineShrapnels = [];
@@ -2845,6 +2920,7 @@
             staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
             siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
             bossSpiders = [];
+            bossSpiderlings = [];
             bossWebGroupIds = new Set();
             nextWebGroupId = 1; nextWebNodeId = 1;
             mineShrapnels = [];
@@ -3165,6 +3241,7 @@
             checkExplode(repulsors, destroyRepulsor); checkExplode(bossWorms, destroyBossWorm); checkExplode(bossLancers, destroyBossLancer);
             checkExplode(bossOrbitals, destroyBossOrbital);
             checkExplode(bossSpiders, destroyBossSpider);
+            checkExplode(bossSpiderlings, destroyBossSpiderling);
         }
 
         function createFloatingText(text, x, y) {
@@ -3192,8 +3269,12 @@
                     spawnParticles(n.x, n.y, '#0ff');
                 }
             }
+            // Clear boss-spawned spiderlings so they don't leak into following waves.
+            bossSpiderlings = [];
             genericDestroy(bossSpiders, i, '#0ff', 12000);
         }
+
+        function destroyBossSpiderling(i) { genericDestroy(bossSpiderlings, i, '#0ff', 500); }
 
         function genericDestroy(arr, index, color, scoreBase) {
              let e = arr[index]; arr.splice(index, 1);
@@ -3504,6 +3585,7 @@
                         if (!hit) checkHpEnemy(siphonFlies, destroySiphonFly);
                         if (!hit) checkHpEnemy(webWeavers, destroyWebWeaver);
                         if (!hit) checkHpEnemy(bossSpiders, destroyBossSpider);
+                        if (!hit) checkHpEnemy(bossSpiderlings, destroyBossSpiderling);
                         if (!hit) checkHpEnemy(webNodes, destroyWebNode);
                         if (!hit) checkHpEnemy(hawkShooters, destroyHawkShooter);
                         
@@ -3564,6 +3646,7 @@
                 if (checkCrash(siphonFlies, destroySiphonFly, 10)) return;
                 if (checkCrash(webWeavers, destroyWebWeaver, 20)) return;
                 if (checkCrash(bossSpiders, destroyBossSpider, 40)) return;
+                if (checkCrash(bossSpiderlings, destroyBossSpiderling, 15)) return;
                 if (checkCrash(hawkShooters, destroyHawkShooter, 20)) return;
 
                 // Static Beetle arc: dampen move + rotation for 2s
@@ -3872,6 +3955,7 @@
                 siphonFlies.forEach(e => { e.update(player); e.draw(ctx); });
                 webWeavers.forEach(e => { e.update(player); e.draw(ctx); });
                 bossSpiders.forEach(b => { b.update(player); b.draw(ctx); });
+                bossSpiderlings.forEach(e => { e.update(player); e.draw(ctx); });
                 hawkShooters.forEach(e => { e.update(player); e.draw(ctx); });
                 
                 bossWorms.forEach(b => { b.update(player); b.draw(ctx); });
