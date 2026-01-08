@@ -1011,10 +1011,14 @@
                 this.head = { x, y }; this.segments = []; for(let i = 0; i < 8; i++) this.segments.push({ x, y });
                 this.angle = 0; this.speed = (3 * (1/this.scale)); 
                 this.wiggleTime = Math.random() * 100; this.radius = 8 * this.scale;
+                this.aggroTimer = 0;
             }
             update(player) {
                 if (!player) return;
-                const isAggro = keys.space || (player && player.ultActive);
+                if (this.aggroTimer > 0) this.aggroTimer--;
+
+                // Aggro if the player is firing OR the worm was recently hit.
+                const isAggro = this.aggroTimer > 0 || keys.space || (player && player.ultActive);
                 if (isAggro) {
                     const dx = player.x - this.head.x; const dy = player.y - this.head.y;
                     const targetAngle = Math.atan2(dy, dx);
@@ -1024,8 +1028,10 @@
                     this.angle += Math.sign(diff) * Math.min(Math.abs(diff), 0.05);
                 } else { this.angle += (Math.random() - 0.5) * 0.1; }
                 this.wiggleTime += 0.2; const wiggle = Math.sin(this.wiggleTime) * 0.6;
-                this.head.x += Math.cos(this.angle + wiggle) * this.speed;
-                this.head.y += Math.sin(this.angle + wiggle) * this.speed;
+
+                const speedMult = (this.aggroTimer > 0) ? 1.5 : 1;
+                this.head.x += Math.cos(this.angle + wiggle) * this.speed * speedMult;
+                this.head.y += Math.sin(this.angle + wiggle) * this.speed * speedMult;
                 if (this.head.x < -40) this.head.x = canvas.width + 40; if (this.head.x > canvas.width + 40) this.head.x = -40;
                 if (this.head.y < -40) this.head.y = canvas.height + 40; if (this.head.y > canvas.height + 40) this.head.y = -40;
                 let prev = this.head;
@@ -1039,7 +1045,12 @@
                     prev = seg;
                 }
             }
-            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            takeDamage(amount) {
+                // Getting hit makes worms aggro and chase the player for a bit.
+                this.aggroTimer = 660;
+                this.hp -= amount;
+                return this.hp <= 0;
+            }
             draw(ctx) {
                 ctx.save(); ctx.strokeStyle = COLOR_WORM; ctx.fillStyle = COLOR_WORM; ctx.shadowColor = COLOR_WORM; ctx.shadowBlur = 10;
                 ctx.beginPath(); ctx.arc(this.head.x, this.head.y, this.radius, 0, Math.PI * 2); ctx.fill();
