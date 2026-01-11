@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Space Hell</title>
+    <title>Neon Void Hunter</title>
     <style>
         body {
             margin: 0;
@@ -109,12 +109,45 @@
         #main-menu {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(5, 5, 5, 0.95);
+            background: #000;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             z-index: 20;
+            overflow: hidden;
+        }
+
+        #menu-bg-layer {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        #menu-bg-frame {
+            width: 0;
+            height: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #menu-bg-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        #main-menu .menu-content {
+            position: relative;
+            z-index: 1;
         }
 
         .menu-grid {
@@ -258,8 +291,15 @@
 
     <!-- MAIN MENU -->
     <div id="main-menu">
+        <div id="menu-bg-layer">
+            <div id="menu-bg-frame">
+                <img id="menu-bg-img" src="https://raw.githubusercontent.com/leonmavr/space_hell/refs/heads/master/cover_art.png" alt="" />
+            </div>
+        </div>
+
+        <div class="menu-content">
         <h1>SPACE HELL</h1>
-        
+
         <div class="menu-grid">
             <!-- Sound -->
             <div class="menu-label">SOUND</div>
@@ -298,6 +338,7 @@
         </div>
 
         <button class="btn" onclick="startGameFromMenu()">LAUNCH!</button>
+        </div>
     </div>
 
     <!-- GAME UI -->
@@ -339,6 +380,18 @@
         // --- Configuration & Constants ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+
+        const MENU_COVER_URL = 'https://raw.githubusercontent.com/leonmavr/space_hell/refs/heads/master/cover_art.png';
+
+        function updateMenuCoverArt() {
+            const frame = document.getElementById('menu-bg-frame');
+            const img = document.getElementById('menu-bg-img');
+            if (!frame || !img) return;
+            const dim = Math.max(0, Math.min(canvas.width || 0, canvas.height || 0));
+            frame.style.width = dim + 'px';
+            frame.style.height = dim + 'px';
+            if (!img.getAttribute('src')) img.setAttribute('src', MENU_COVER_URL);
+        }
         
         const difficulties = ['EASY', 'MEDIUM', 'HARD', 'HELL'];
 
@@ -431,6 +484,8 @@
         let sniperMosquitos = [];
         let clusterRoaches = [];
         let roachMites = [];
+        let acidWorms = [];
+        let acidPoisonOrbs = [];
         let siphonFlies = [];
         let webWeavers = [];
         let webNodes = [];
@@ -556,6 +611,7 @@
             document.getElementById('game-controls-hint').style.display = 'none';
             document.getElementById('main-menu').style.display = 'flex';
             gameState.running = false;
+            updateMenuCoverArt();
             
             settings.world = maxUnlockedWorld;
             document.getElementById('val-world').innerText = settings.world;
@@ -1943,6 +1999,172 @@
             }
         }
 
+        class AcidPoisonOrb {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.fuse = 45; // frames until explosion
+                this.exploded = false;
+                this.explosionTimer = 0;
+                this.size = 10;
+                this.explosionRadius = 52;
+                this.life = 999;
+            }
+            update(player) {
+                if (!this.exploded) {
+                    this.fuse--;
+                    if (this.fuse <= 0) {
+                        this.exploded = true;
+                        this.explosionTimer = 12;
+                        // One-time AoE hit
+                        if (player && dist(player, this) < this.explosionRadius + PLAYER_SIZE) {
+                            // 25% slow for 3s; does not stack (just refreshes/extends)
+                            player.acidSlowTimer = Math.max(player.acidSlowTimer || 0, 180);
+                            if (player.invulnerable <= 0) takeDamage(8);
+                        }
+                        for (let i = 0; i < 18; i++) particles.push(new Particle(this.x, this.y, '#0f0', 6, 3, 30));
+                        playSound('enemyShoot');
+                    }
+                } else {
+                    this.explosionTimer--;
+                    if (this.explosionTimer <= 0) this.life = 0;
+                }
+            }
+            draw(ctx) {
+                if (!this.exploded) {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.fillStyle = 'rgba(0,255,0,0.85)';
+                    ctx.shadowColor = '#0f0';
+                    ctx.shadowBlur = 16;
+                    ctx.beginPath(); ctx.arc(0, 0, this.size, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                } else {
+                    const t = (12 - this.explosionTimer) / 12;
+                    const r = this.explosionRadius * (0.4 + t * 0.6);
+                    ctx.save();
+                    ctx.strokeStyle = `rgba(0,255,0,${0.6 * (1 - t)})`;
+                    ctx.shadowColor = '#0f0';
+                    ctx.shadowBlur = 18;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2); ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }
+
+        class AcidWorm {
+            constructor(x, y, tier = TIER_SMALL) {
+                this.x = x; this.y = y;
+                this.baseX = x; this.baseY = y;
+                this.tier = tier;
+                this.scale = tier === TIER_LARGE ? 1.6 : (tier === TIER_MED ? 1.3 : 1.05);
+                this.hp = tier === TIER_LARGE ? 22 : (tier === TIER_MED ? 14 : 8);
+                this.maxHp = this.hp;
+
+                this.baseRadius = 20 * this.scale;
+                this.segmentCount = 9;
+                this.segmentSpacing = 12 * this.scale;
+                this.segments = [];
+                for (let i = 0; i < this.segmentCount; i++) this.segments.push({ x: this.baseX, y: this.baseY });
+
+                this.wiggleTime = Math.random() * 100;
+                this.wiggleRadius = 42 * this.scale;
+                this.shootCooldown = 60 + Math.floor(Math.random() * 120);
+                this.size = this.baseRadius; // used for generic systems
+                this.head = { x: this.baseX, y: this.baseY };
+            }
+
+            getSegmentRadius(i) {
+                const t = i / Math.max(1, this.segmentCount - 1);
+                const startR = 14 * this.scale;
+                const endR = 5 * this.scale;
+                return startR + (endR - startR) * t;
+            }
+
+            update(player) {
+                // Stationary base; tentacle tip wiggles around base.
+                this.wiggleTime += 0.07;
+                const ax = Math.cos(this.wiggleTime) * this.wiggleRadius;
+                const ay = Math.sin(this.wiggleTime * 1.23) * this.wiggleRadius;
+                const tipTarget = { x: this.baseX + ax, y: this.baseY + ay };
+
+                // Simple 2-pass IK to keep base anchored.
+                // Backward: set tip then work toward base.
+                this.segments[this.segmentCount - 1].x = tipTarget.x;
+                this.segments[this.segmentCount - 1].y = tipTarget.y;
+                for (let i = this.segmentCount - 2; i >= 0; i--) {
+                    const a = this.segments[i];
+                    const b = this.segments[i + 1];
+                    const dx = a.x - b.x;
+                    const dy = a.y - b.y;
+                    const d = Math.max(0.0001, Math.sqrt(dx * dx + dy * dy));
+                    const nx = dx / d;
+                    const ny = dy / d;
+                    a.x = b.x + nx * this.segmentSpacing;
+                    a.y = b.y + ny * this.segmentSpacing;
+                }
+                // Forward: anchor base then enforce spacing toward tip.
+                this.segments[0].x = this.baseX;
+                this.segments[0].y = this.baseY;
+                for (let i = 1; i < this.segmentCount; i++) {
+                    const prev = this.segments[i - 1];
+                    const cur = this.segments[i];
+                    const dx = cur.x - prev.x;
+                    const dy = cur.y - prev.y;
+                    const d = Math.max(0.0001, Math.sqrt(dx * dx + dy * dy));
+                    const nx = dx / d;
+                    const ny = dy / d;
+                    cur.x = prev.x + nx * this.segmentSpacing;
+                    cur.y = prev.y + ny * this.segmentSpacing;
+                }
+
+                this.head.x = this.segments[this.segmentCount - 1].x;
+                this.head.y = this.segments[this.segmentCount - 1].y;
+
+                // Shoot poison every 3 seconds.
+                if (this.shootCooldown > 0) {
+                    this.shootCooldown--;
+                } else {
+                    if (player) {
+                        const jitter = 26;
+                        const px = player.x + (Math.random() - 0.5) * jitter;
+                        const py = player.y + (Math.random() - 0.5) * jitter;
+                        acidPoisonOrbs.push(new AcidPoisonOrb(px, py));
+                    }
+                    this.shootCooldown = 180;
+                }
+            }
+
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+
+            draw(ctx) {
+                // Base
+                ctx.save();
+                ctx.translate(this.baseX, this.baseY);
+                ctx.strokeStyle = '#0f0';
+                ctx.shadowColor = '#0f0';
+                ctx.shadowBlur = 14;
+                ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(0, 0, this.baseRadius, 0, Math.PI * 2); ctx.stroke();
+                ctx.restore();
+
+                // Segments
+                ctx.save();
+                ctx.strokeStyle = '#0f0';
+                ctx.shadowColor = '#0f0';
+                ctx.shadowBlur = 10;
+                ctx.lineWidth = 2;
+                for (let i = 0; i < this.segmentCount; i++) {
+                    const s = this.segments[i];
+                    const r = this.getSegmentRadius(i);
+                    ctx.beginPath(); ctx.arc(s.x, s.y, r, 0, Math.PI * 2); ctx.stroke();
+                }
+                ctx.restore();
+
+                drawHpBar(ctx, this.hp, this.maxHp, this.baseRadius + this.wiggleRadius + 18, this.scale, 0, this.baseX, this.baseY);
+            }
+        }
+
         class RoachMite {
             constructor(x, y, tier = TIER_SMALL) {
                 this.x = x; this.y = y; this.tier = tier;
@@ -2507,7 +2729,7 @@
             constructor(x, y, tier = TIER_SMALL) {
                 this.x = x; this.y = y; this.tier = tier;
                 this.scale = tier === TIER_LARGE ? 1.8 : (tier === TIER_MED ? 1.45 : 1.15);
-                this.hp = tier === TIER_LARGE ? 10 : (tier === TIER_MED ? 7 : 5);
+                this.hp = tier === TIER_LARGE ? 8 : (tier === TIER_MED ? 6 : 3);
                 this.maxHp = this.hp;
                 this.size = 16 * this.scale;
                 this.vx = 0; this.vy = 0;
@@ -2643,6 +2865,7 @@
                 this.reverseTimer = 0;
                 this.ultCharge = 0; this.ultActive = false; this.ultTimer = 0;
                 this.slowTimer = 0;
+                this.acidSlowTimer = 0; // 25% slow (non-stacking)
                 this.dampenTimer = 0; // 50% move + rotation slow
                 this.gridLockTimer = 0; // 90% move + rotation slow
                 this.respawn();
@@ -2654,6 +2877,7 @@
                 this.invulnerable = 120; this.fireCooldown = 0;
                 this.ultActive = false; this.ultTimer = 0;
                 this.slowTimer = 0;
+                this.acidSlowTimer = 0;
                 this.dampenTimer = 0;
                 this.gridLockTimer = 0;
                 if (typeof player !== 'undefined') {
@@ -2668,6 +2892,7 @@
             update() {
                 // Status timers
                 if (this.slowTimer > 0) this.slowTimer--;
+                if (this.acidSlowTimer > 0) this.acidSlowTimer--;
                 if (this.dampenTimer > 0) this.dampenTimer--;
                 if (this.gridLockTimer > 0) this.gridLockTimer--;
 
@@ -2675,6 +2900,7 @@
                 let effectiveAccel = ACCELERATION;
                 let effectiveRot = ROTATION_SPEED;
                 if (this.slowTimer > 0) { effectiveAccel *= 0.25; }
+                if (this.acidSlowTimer > 0) { effectiveAccel *= 0.75; }
                 if (this.dampenTimer > 0) { effectiveAccel *= 0.5; effectiveRot *= 0.5; }
                 if (this.gridLockTimer > 0) { effectiveAccel *= 0.1; effectiveRot *= 0.1; }
 
@@ -2762,7 +2988,7 @@
                 ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
                 
                 // Slowed Visual
-                 if (this.slowTimer > 0 || this.dampenTimer > 0 || this.gridLockTimer > 0) {
+                  if (this.slowTimer > 0 || this.acidSlowTimer > 0 || this.dampenTimer > 0 || this.gridLockTimer > 0) {
                      ctx.strokeStyle = '#00f'; ctx.shadowColor = '#00f';
                 } else {
                      ctx.strokeStyle = COLOR_PLAYER; ctx.shadowColor = COLOR_PLAYER;
@@ -2823,6 +3049,7 @@
             const maxWidth = 1200;
             canvas.width = Math.min(window.innerWidth, maxWidth);
             canvas.height = window.innerHeight;
+            updateMenuCoverArt();
         }
 
         function togglePause() {
@@ -2940,13 +3167,17 @@
             nextWebNodeId = 1;
             bossWebGroupIds = new Set();
             
-                // Cleanup Powerups at start of boss wave
-                if (gameState.wave === 11 || gameState.wave === 22 || gameState.wave === 33 || gameState.wave === 44) {
-                 bonuses = []; 
-                 if (player) {
+            // Cleanup Powerups at start of boss wave
+            if (gameState.wave === 11 || gameState.wave === 22 || gameState.wave === 33 || gameState.wave === 44) {
+                bonuses = [];
+                if (player) {
+                    // Heal to full HP before the boss fight (does not grant lives)
+                    player.health = 100;
+                    updateHealthUI();
+
                     player.shotLevel = 1; player.shotTimer = 0; player.rateLevel = 0; player.rateTimer = 0; player.reverseTimer = 0;
                     document.getElementById('powerup-status').innerText = "";
-                 }
+                }
             }
 
             // BOSS WAVE 1 (Worms) - Wave 11
@@ -3009,12 +3240,12 @@
 
             // World-specific extra spawns
             let hawkCount = 0;
-            let roachCount = 0;
+            let acidWormCount = 0;
             if (world === 3) totalEnemies += 1;
             if (world === 4) {
                 hawkCount = 1 + Math.floor(wWave / 4);
-                roachCount = wWave >= 2 ? (1 + Math.floor((wWave - 2) / 4)) : 0;
-                totalEnemies += hawkCount + roachCount;
+                acidWormCount = wWave >= 2 ? (1 + Math.floor((wWave - 2) / 4)) : 0;
+                totalEnemies += hawkCount + acidWormCount;
             }
 
             const fillerCount = Math.max(0, baseSpawns - totalEnemies);
@@ -3080,8 +3311,21 @@
                 for (let i = 0; i < hazardTier3; i++) spawnWebWeaver(TIER_LARGE);
 
                 for (let i = 0; i < hawkCount; i++) spawnHawkShooter(Math.min(TIER_LARGE, 1 + Math.floor(wWave / 4)));
-                for (let i = 0; i < roachCount; i++) spawnClusterRoach(Math.min(TIER_LARGE, 1 + Math.floor((wWave + 1) / 4)));
+                for (let i = 0; i < acidWormCount; i++) spawnAcidWorm(Math.min(TIER_LARGE, 1 + Math.floor((wWave + 1) / 4)));
             }
+        }
+
+        function getSafeInScreenPosition(margin = 80, minDistFromPlayer = 210) {
+            let x, y, d, attempts = 0;
+            do {
+                x = Math.random() * (canvas.width - margin * 2) + margin;
+                y = Math.random() * (canvas.height - margin * 2) + margin;
+                if (player) {
+                    const dx = x - player.x; const dy = y - player.y; d = Math.sqrt(dx*dx + dy*dy);
+                } else { d = 1000; }
+                attempts++;
+            } while (d < minDistFromPlayer && attempts < 20);
+            return { x, y };
         }
 
         function getSafeEdgePosition() {
@@ -3179,6 +3423,10 @@
             sniperMosquitos.push(new SniperMosquito(x, y, tier));
         }
         function spawnClusterRoach(tier) { const pos = getSafeEdgePosition(); clusterRoaches.push(new ClusterRoach(pos.x, pos.y, tier)); }
+        function spawnAcidWorm(tier) {
+            const pos = getSafeInScreenPosition(100, 240);
+            acidWorms.push(new AcidWorm(pos.x, pos.y, tier));
+        }
         function spawnSiphonFly(tier) { const pos = getSafeEdgePosition(); siphonFlies.push(new SiphonFly(pos.x, pos.y, tier)); }
         function spawnWebWeaver(tier) { const pos = getSafeEdgePosition(); webWeavers.push(new WebWeaver(pos.x, pos.y, tier)); }
         function spawnHawkShooter(tier) { const pos = getSafeEdgePosition(); hawkShooters.push(new HawkShooter(pos.x, pos.y, tier)); }
@@ -3242,6 +3490,7 @@
             checkExplode(bossOrbitals, destroyBossOrbital);
             checkExplode(bossSpiders, destroyBossSpider);
             checkExplode(bossSpiderlings, destroyBossSpiderling);
+            checkExplode(acidWorms, destroyAcidWorm);
         }
 
         function createFloatingText(text, x, y) {
@@ -3363,6 +3612,8 @@
             finishKill();
         }
 
+        function destroyAcidWorm(i) { genericDestroy(acidWorms, i, '#0f0', 1400); }
+
         function destroyClusterRoach(i) {
             const r = clusterRoaches[i]; if (!r) return;
             clusterRoaches.splice(i, 1);
@@ -3382,7 +3633,7 @@
                 mines.length === 0 && aegises.length === 0 && hives.length === 0 && lancers.length === 0 && tethers.length === 0 &&
                 drones.length === 0 &&
                 tornados.length === 0 && reflectors.length === 0 && trailblazers.length === 0 && orbitals.length === 0 && prisms.length === 0 && repulsors.length === 0 &&
-                staticBeetles.length === 0 && phaseMantises.length === 0 && sniperMosquitos.length === 0 && clusterRoaches.length === 0 && roachMites.length === 0 &&
+                staticBeetles.length === 0 && phaseMantises.length === 0 && sniperMosquitos.length === 0 && clusterRoaches.length === 0 && roachMites.length === 0 && acidWorms.length === 0 &&
                 siphonFlies.length === 0 && webWeavers.length === 0 && hawkShooters.length === 0 &&
                 bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0 && bossSpiders.length === 0) {
                 
@@ -3426,6 +3677,8 @@
                 mineShrapnels = filterArr(mineShrapnels);
                 staticBeetles = filterArr(staticBeetles); phaseMantises = filterArr(phaseMantises); sniperMosquitos = filterArr(sniperMosquitos);
                 clusterRoaches = filterArr(clusterRoaches); roachMites = filterArr(roachMites); siphonFlies = filterArr(siphonFlies);
+                acidWorms = filterArr(acidWorms);
+                acidPoisonOrbs = filterArr(acidPoisonOrbs);
                 webWeavers = filterArr(webWeavers);
                 // If a WebWeaver gets removed by the safety filter, also remove its entire web.
                 const aliveWebGroups = new Set(webWeavers.map(w => w.webGroupId));
@@ -3478,6 +3731,16 @@
                 sniperMosquitos.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroySniperMosquito(i); });
                 clusterRoaches.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyClusterRoach(i); });
                 roachMites.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyRoachMite(i); });
+                acidWorms.forEach((w, i) => {
+                    let hitAny = false;
+                    for (let k = 0; k < w.segments.length; k++) {
+                        const s = w.segments[k];
+                        const r = w.getSegmentRadius(k);
+                        if (checkLaserHit(s, r) && w.takeDamage(0.5)) { destroyAcidWorm(i); hitAny = true; break; }
+                        if (checkLaserHit(s, r)) hitAny = true;
+                    }
+                    if (hitAny && !w.dead) { /* no-op; laser can hit multiple segments, but damage is per-frame */ }
+                });
                 siphonFlies.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroySiphonFly(i); });
                 webWeavers.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyWebWeaver(i); });
                 // Boss Spider is immune to ultimate laser.
@@ -3588,6 +3851,23 @@
                         if (!hit) checkHpEnemy(bossSpiderlings, destroyBossSpiderling);
                         if (!hit) checkHpEnemy(webNodes, destroyWebNode);
                         if (!hit) checkHpEnemy(hawkShooters, destroyHawkShooter);
+
+                        // AcidWorm: bullets can hit any segment
+                        if (!hit) {
+                            for (let j = acidWorms.length - 1; j >= 0; j--) {
+                                const w = acidWorms[j];
+                                for (let k = 0; k < w.segments.length; k++) {
+                                    const s = w.segments[k];
+                                    const r = w.getSegmentRadius(k);
+                                    if (Math.sqrt((b.x - s.x) ** 2 + (b.y - s.y) ** 2) < r + 6) {
+                                        if (w.takeDamage(1)) destroyAcidWorm(j);
+                                        hit = true;
+                                        break;
+                                    }
+                                }
+                                if (hit) break;
+                            }
+                        }
                         
                         // Bosses
                         if (!hit) {
@@ -3648,6 +3928,19 @@
                 if (checkCrash(bossSpiders, destroyBossSpider, 40)) return;
                 if (checkCrash(bossSpiderlings, destroyBossSpiderling, 15)) return;
                 if (checkCrash(hawkShooters, destroyHawkShooter, 20)) return;
+
+                // AcidWorm: body damage if any segment is touched
+                for (let j = acidWorms.length - 1; j >= 0; j--) {
+                    const w = acidWorms[j];
+                    for (let k = 0; k < w.segments.length; k++) {
+                        const s = w.segments[k];
+                        const r = w.getSegmentRadius(k);
+                        if (Math.sqrt((player.x - s.x) ** 2 + (player.y - s.y) ** 2) < r + PLAYER_SIZE) {
+                            if (takeDamage(15)) return;
+                            break;
+                        }
+                    }
+                }
 
                 // Static Beetle arc: dampen move + rotation for 2s
                 for (let j = staticBeetles.length - 1; j >= 0; j--) {
@@ -3908,6 +4201,9 @@
                 player.update(); player.draw(ctx);
                 
                 bullets.forEach(b => { b.update(); b.draw(ctx); }); bullets = bullets.filter(b => b.life > 0);
+
+                acidPoisonOrbs.forEach(o => { o.update(player); o.draw(ctx); });
+                acidPoisonOrbs = acidPoisonOrbs.filter(o => o.life > 0);
                 
                 asteroids.forEach(a => { a.update(player); a.draw(ctx); });
                 ufos.forEach(u => { u.update(player); u.draw(ctx); });
@@ -3952,6 +4248,7 @@
                 sniperMosquitos.forEach(e => { e.update(player); e.draw(ctx); });
                 clusterRoaches.forEach(e => { e.update(player); e.draw(ctx); });
                 roachMites.forEach(e => { e.update(player); e.draw(ctx); });
+                acidWorms.forEach(e => { e.update(player); e.draw(ctx); });
                 siphonFlies.forEach(e => { e.update(player); e.draw(ctx); });
                 webWeavers.forEach(e => { e.update(player); e.draw(ctx); });
                 bossSpiders.forEach(b => { b.update(player); b.draw(ctx); });
