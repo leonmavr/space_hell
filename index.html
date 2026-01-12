@@ -2425,11 +2425,24 @@
                 this.hp = tier === TIER_LARGE ? 22 : (tier === TIER_MED ? 16 : 8);
                 this.maxHp = this.hp;
                 this.size = 18 * this.scale;
-                this.vx = (Math.random() - 0.5) * 1.6;
-                this.vy = (Math.random() - 0.5) * 1.6;
                 this.webGroupId = nextWebGroupId++;
-                this.webCenterX = x;
-                this.webCenterY = y;
+
+                // Bias the weaver's web center toward the screen center (so they don't mostly live on edges).
+                const centerBias = 0.6; // 0 = keep original spawn, 1 = fully center
+                const centerJitter = 0.18; // fraction of canvas to jitter around center
+                const cx = canvas.width * (0.5 + (Math.random() - 0.5) * centerJitter);
+                const cy = canvas.height * (0.5 + (Math.random() - 0.5) * centerJitter);
+
+                this.webCenterX = x * (1 - centerBias) + cx * centerBias;
+                this.webCenterY = y * (1 - centerBias) + cy * centerBias;
+
+                // Start near the (biased) web center.
+                this.x = this.webCenterX + (Math.random() - 0.5) * 60;
+                this.y = this.webCenterY + (Math.random() - 0.5) * 60;
+
+                // Slower initial wander so they tend to stay central.
+                this.vx = (Math.random() - 0.5) * 0.9;
+                this.vy = (Math.random() - 0.5) * 0.9;
                 this.dropTimer = 0;
                 this.lastNodeId = null;
                 this.nodesDropped = 0;
