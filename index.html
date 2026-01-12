@@ -501,10 +501,9 @@
         let roachMites = [];
         let acidWorms = [];
         let acidPoisonOrbs = [];
-        let siphonFlies = [];
+        let beetleFlies = [];
         let webWeavers = [];
         let webNodes = [];
-        let hawkShooters = [];
 
         // Boss Spider (Wave 44)
         let bossSpiders = [];
@@ -1742,6 +1741,11 @@
                 this.maxSpeed = 2.2 + tier * 0.7;
                 this.accel = 0.06 + tier * 0.01;
                 this.pincerSpread = 0.55;
+
+                // Legs animation and fly shooting
+                this.legPhases = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
+                this.legFreqs = Array.from({ length: 6 }, () => 0.07 + Math.random() * 0.05);
+                this.flyCooldown = 180 + Math.floor(Math.random() * 120);
             }
             update(player) {
                 if (player) {
@@ -1759,6 +1763,18 @@
                 this.x += this.vx; this.y += this.vy;
                 if (this.x < -40) this.x = canvas.width + 40; if (this.x > canvas.width + 40) this.x = -40;
                 if (this.y < -40) this.y = canvas.height + 40; if (this.y > canvas.height + 40) this.y = -40;
+
+                // Shoot 5 orbiting flies every 10s (600 frames)
+                if (this.flyCooldown > 0) this.flyCooldown--;
+                else {
+                    if (player) {
+                        const mx = this.x + Math.cos(this.angle) * this.size * 1.15;
+                        const my = this.y + Math.sin(this.angle) * this.size * 1.15;
+                        for (let k = 0; k < 5; k++) beetleFlies.push(new BeetleFly(mx, my, player, this.tier));
+                        playSound('enemyShoot');
+                    }
+                    this.flyCooldown = 600;
+                }
             }
             getArcTips() {
                 const tipDist = this.size * 1.15;
@@ -1774,30 +1790,127 @@
             draw(ctx) {
                 ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
                 ctx.strokeStyle = '#ff0'; ctx.shadowColor = '#ff0'; ctx.shadowBlur = 15; ctx.lineWidth = 3;
-                // Body
+
+                // Body: long ellipse
+                const L = this.size * 2.1;
+                const H = this.size * 1.15;
                 ctx.beginPath();
-                ctx.rect(-this.size, -this.size * 0.7, this.size * 2, this.size * 1.4);
+                ctx.ellipse(0, 0, L * 0.5, H * 0.5, 0, 0, Math.PI * 2);
                 ctx.stroke();
-                ctx.globalAlpha = 0.15; ctx.fillStyle = '#ff0'; ctx.fillRect(-this.size, -this.size * 0.7, this.size * 2, this.size * 1.4);
+                ctx.globalAlpha = 0.12;
+                ctx.fillStyle = '#ff0';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, L * 0.5, H * 0.5, 0, 0, Math.PI * 2);
+                ctx.fill();
                 ctx.globalAlpha = 1;
 
-                // Pincers
+                // Segment stripes (like the reference)
+                ctx.lineWidth = 2;
+                for (let i = -2; i <= 2; i++) {
+                    const y = (i / 3) * (H * 0.35);
+                    const w = L * 0.7;
+                    ctx.beginPath();
+                    ctx.moveTo(-w * 0.5, y);
+                    ctx.lineTo(w * 0.5, y);
+                    ctx.stroke();
+                }
+
+                // Legs (6), animated end points independently
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                const stepAmp = (0.55 + speed * 0.25) * this.size * 0.18;
+                const legLen = this.size * 0.85;
+                const legBaseY = H * 0.32;
+                const legXs = [-L * 0.25, 0, L * 0.25];
+                ctx.lineWidth = 3;
+                for (let side = -1; side <= 1; side += 2) {
+                    for (let idx = 0; idx < 3; idx++) {
+                        const legIndex = (side === -1 ? 0 : 3) + idx;
+                        const baseX = legXs[idx];
+                        const baseY = side * legBaseY;
+                        const t = Date.now() / 16.67;
+                        const wob = Math.sin(t * this.legFreqs[legIndex] + this.legPhases[legIndex]);
+                        const wob2 = Math.sin(t * (this.legFreqs[legIndex] * 1.33) + this.legPhases[legIndex] * 1.7);
+                        const endX = baseX + (0.22 + idx * 0.05) * legLen + wob2 * (stepAmp * 0.35);
+                        const endY = baseY + side * (legLen + wob * stepAmp);
+                        ctx.beginPath();
+                        ctx.moveTo(baseX, baseY);
+                        ctx.lineTo(endX, endY);
+                        ctx.stroke();
+                    }
+                }
+
+                // Mouth / mandibles at front
+                ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.moveTo(this.size * 0.6, -this.size * 0.35);
-                ctx.lineTo(this.size * 1.2, -this.size * 0.7);
-                ctx.moveTo(this.size * 0.6, this.size * 0.35);
-                ctx.lineTo(this.size * 1.2, this.size * 0.7);
+                ctx.moveTo(L * 0.45, -H * 0.12);
+                ctx.lineTo(L * 0.58, -H * 0.04);
+                ctx.moveTo(L * 0.45, H * 0.12);
+                ctx.lineTo(L * 0.58, H * 0.04);
                 ctx.stroke();
 
-                // Electric arc between pincer tips (simple line)
+                // Keep original arc behavior: draw a small arc between mandibles
                 ctx.strokeStyle = '#b0f'; ctx.shadowColor = '#b0f'; ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.moveTo(this.size * 1.2, -this.size * 0.7);
-                ctx.lineTo(this.size * 1.2, this.size * 0.7);
+                ctx.moveTo(L * 0.58, -H * 0.04);
+                ctx.lineTo(L * 0.58, H * 0.04);
                 ctx.stroke();
 
                 ctx.restore();
                 drawHpBar(ctx, this.hp, this.maxHp, this.size + 18, this.scale, 0, this.x, this.y);
+            }
+        }
+
+        class BeetleFly {
+            constructor(x, y, player, tier = TIER_SMALL) {
+                this.x = x; this.y = y;
+                this.tier = tier;
+                this.hp = 1; this.maxHp = 1;
+                this.size = 7;
+                this.orbitAngle = Math.random() * Math.PI * 2;
+                this.orbitDist = 70 + Math.random() * 55;
+                this.orbitSpeed = 0.08 + Math.random() * 0.06;
+                this.drainCooldown = 0;
+            }
+            update(player) {
+                if (this.drainCooldown > 0) this.drainCooldown--;
+                if (!player) return;
+
+                this.orbitAngle += this.orbitSpeed;
+                const tx = player.x + Math.cos(this.orbitAngle) * this.orbitDist;
+                const ty = player.y + Math.sin(this.orbitAngle) * this.orbitDist;
+
+                // Avoid direct contact: if too close, expand orbit temporarily
+                const dxp = this.x - player.x;
+                const dyp = this.y - player.y;
+                const dp = Math.sqrt(dxp * dxp + dyp * dyp);
+                if (dp < this.orbitDist * 0.6) this.orbitDist = Math.min(130, this.orbitDist + 0.6);
+                else this.orbitDist = Math.max(70, this.orbitDist - 0.1);
+
+                // Smooth orbiting movement
+                this.x += (tx - this.x) * 0.12;
+                this.y += (ty - this.y) * 0.12;
+
+                // Wrap
+                if (this.x < -40) this.x = canvas.width + 40; if (this.x > canvas.width + 40) this.x = -40;
+                if (this.y < -40) this.y = canvas.height + 40; if (this.y > canvas.height + 40) this.y = -40;
+            }
+            takeDamage(amount) { this.hp -= amount; return this.hp <= 0; }
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.strokeStyle = '#ff0';
+                ctx.shadowColor = '#ff0';
+                ctx.shadowBlur = 10;
+                ctx.lineWidth = 2;
+                // tiny flying bug: circle + wings
+                ctx.beginPath(); ctx.arc(0, 0, this.size, 0, Math.PI * 2); ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(-this.size * 1.2, -this.size * 0.2);
+                ctx.lineTo(-this.size * 0.2, -this.size * 0.9);
+                ctx.moveTo(-this.size * 1.2, this.size * 0.2);
+                ctx.lineTo(-this.size * 0.2, this.size * 0.9);
+                ctx.stroke();
+                ctx.restore();
             }
         }
 
@@ -3134,7 +3247,8 @@
             mines = []; aegises = []; hives = []; drones = []; lancers = []; tethers = [];
             tornados = []; reflectors = []; trailblazers = []; orbitals = []; prisms = []; repulsors = [];
             staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
-            siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
+            beetleFlies = [];
+            webWeavers = []; webNodes = [];
             bossSpiders = [];
             bossSpiderlings = [];
             bossWebGroupIds = new Set();
@@ -3160,7 +3274,8 @@
             mines = []; aegises = []; hives = []; drones = []; lancers = []; tethers = [];
             tornados = []; reflectors = []; trailblazers = []; orbitals = []; prisms = []; repulsors = [];
             staticBeetles = []; phaseMantises = []; sniperMosquitos = []; clusterRoaches = []; roachMites = [];
-            siphonFlies = []; webWeavers = []; webNodes = []; hawkShooters = [];
+            beetleFlies = [];
+            webWeavers = []; webNodes = [];
             bossSpiders = [];
             bossSpiderlings = [];
             bossWebGroupIds = new Set();
@@ -3254,13 +3369,11 @@
             let totalEnemies = tier1Common + tier1Uncommon + tier2Common + tier2Uncommon + tier3Common + tier3Uncommon + hazardTier1 + hazardTier2 + hazardTier3;
 
             // World-specific extra spawns
-            let hawkCount = 0;
             let acidWormCount = 0;
             if (world === 3) totalEnemies += 1;
             if (world === 4) {
-                hawkCount = 1 + Math.floor(wWave / 4);
                 acidWormCount = wWave >= 2 ? (1 + Math.floor((wWave - 2) / 4)) : 0;
-                totalEnemies += hawkCount + acidWormCount;
+                totalEnemies += acidWormCount;
             }
 
             const fillerCount = Math.max(0, baseSpawns - totalEnemies);
@@ -3317,7 +3430,7 @@
                 for (let i = 0; i < tier2Common; i++) spawnStaticBeetle(TIER_MED);
                 for (let i = 0; i < tier3Common; i++) spawnStaticBeetle(TIER_LARGE);
 
-                for (let i = 0; i < tier1Uncommon; i++) spawnSiphonFly(TIER_SMALL);
+                // tier1Uncommon flies removed
                 for (let i = 0; i < tier2Uncommon; i++) spawnPhaseMantis(TIER_MED);
                 for (let i = 0; i < tier3Uncommon; i++) spawnSniperMosquito(TIER_LARGE);
 
@@ -3325,7 +3438,6 @@
                 for (let i = 0; i < hazardTier2; i++) spawnWebWeaver(TIER_MED);
                 for (let i = 0; i < hazardTier3; i++) spawnWebWeaver(TIER_LARGE);
 
-                for (let i = 0; i < hawkCount; i++) spawnHawkShooter(Math.min(TIER_LARGE, 1 + Math.floor(wWave / 4)));
                 for (let i = 0; i < acidWormCount; i++) spawnAcidWorm(Math.min(TIER_LARGE, 1 + Math.floor((wWave + 1) / 4)));
             }
         }
@@ -3442,9 +3554,7 @@
             const pos = getSafeInScreenPosition(100, 240);
             acidWorms.push(new AcidWorm(pos.x, pos.y, tier));
         }
-        function spawnSiphonFly(tier) { const pos = getSafeEdgePosition(); siphonFlies.push(new SiphonFly(pos.x, pos.y, tier)); }
         function spawnWebWeaver(tier) { const pos = getSafeEdgePosition(); webWeavers.push(new WebWeaver(pos.x, pos.y, tier)); }
-        function spawnHawkShooter(tier) { const pos = getSafeEdgePosition(); hawkShooters.push(new HawkShooter(pos.x, pos.y, tier)); }
 
         function spawnBonus(x, y, multiplier = 1) {
             if (Math.random() < 0.30 * multiplier) {
@@ -3506,6 +3616,7 @@
             checkExplode(bossSpiders, destroyBossSpider);
             checkExplode(bossSpiderlings, destroyBossSpiderling);
             checkExplode(acidWorms, destroyAcidWorm);
+            checkExplode(beetleFlies, destroyBeetleFly);
         }
 
         function createFloatingText(text, x, y) {
@@ -3593,7 +3704,6 @@
         function destroyStaticBeetle(i) { genericDestroy(staticBeetles, i, '#ff0', 900); }
         function destroyPhaseMantis(i) { genericDestroy(phaseMantises, i, '#fff', 1200); }
         function destroySniperMosquito(i) { genericDestroy(sniperMosquitos, i, '#f00', 1500); }
-        function destroySiphonFly(i) { genericDestroy(siphonFlies, i, '#d0f', 800); }
         function destroyWebWeaver(i) {
             const w = webWeavers[i]; if (!w) return;
             const gid = w.webGroupId;
@@ -3607,7 +3717,7 @@
             // Now destroy the weaver itself (awards score / particles)
             genericDestroy(webWeavers, i, '#0ff', 1500);
         }
-        function destroyHawkShooter(i) { genericDestroy(hawkShooters, i, '#fa0', 1400); }
+        
 
         function destroyWebNode(i) {
             const n = webNodes[i]; if (!n) return;
@@ -3624,6 +3734,14 @@
             roachMites.splice(i, 1);
             spawnParticles(m.x, m.y, '#0f0');
             gameState.score += 150;
+            finishKill();
+        }
+
+        function destroyBeetleFly(i) {
+            const f = beetleFlies[i]; if (!f) return;
+            beetleFlies.splice(i, 1);
+            spawnParticles(f.x, f.y, '#ff0');
+            gameState.score += 80;
             finishKill();
         }
 
@@ -3648,8 +3766,8 @@
                 mines.length === 0 && aegises.length === 0 && hives.length === 0 && lancers.length === 0 && tethers.length === 0 &&
                 drones.length === 0 &&
                 tornados.length === 0 && reflectors.length === 0 && trailblazers.length === 0 && orbitals.length === 0 && prisms.length === 0 && repulsors.length === 0 &&
-                staticBeetles.length === 0 && phaseMantises.length === 0 && sniperMosquitos.length === 0 && clusterRoaches.length === 0 && roachMites.length === 0 && acidWorms.length === 0 &&
-                siphonFlies.length === 0 && webWeavers.length === 0 && hawkShooters.length === 0 &&
+                staticBeetles.length === 0 && phaseMantises.length === 0 && sniperMosquitos.length === 0 && clusterRoaches.length === 0 && roachMites.length === 0 && acidWorms.length === 0 && beetleFlies.length === 0 &&
+                webWeavers.length === 0 &&
                 bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0 && bossSpiders.length === 0) {
                 
                 gameState.wave++;
@@ -3691,14 +3809,15 @@
                 trailblazers = filterArr(trailblazers); orbitals = filterArr(orbitals); prisms = filterArr(prisms); repulsors = filterArr(repulsors);
                 mineShrapnels = filterArr(mineShrapnels);
                 staticBeetles = filterArr(staticBeetles); phaseMantises = filterArr(phaseMantises); sniperMosquitos = filterArr(sniperMosquitos);
-                clusterRoaches = filterArr(clusterRoaches); roachMites = filterArr(roachMites); siphonFlies = filterArr(siphonFlies);
+                clusterRoaches = filterArr(clusterRoaches); roachMites = filterArr(roachMites);
                 acidWorms = filterArr(acidWorms);
                 acidPoisonOrbs = filterArr(acidPoisonOrbs);
+                beetleFlies = filterArr(beetleFlies);
                 webWeavers = filterArr(webWeavers);
                 // If a WebWeaver gets removed by the safety filter, also remove its entire web.
                 const aliveWebGroups = new Set(webWeavers.map(w => w.webGroupId));
                 webNodes = webNodes.filter(n => aliveWebGroups.has(n.groupId));
-                hawkShooters = filterArr(hawkShooters);
+                
                 checkWaveEnd();
             } else {
                 gameOver();
@@ -3746,6 +3865,7 @@
                 sniperMosquitos.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroySniperMosquito(i); });
                 clusterRoaches.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyClusterRoach(i); });
                 roachMites.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyRoachMite(i); });
+                beetleFlies.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyBeetleFly(i); });
                 acidWorms.forEach((w, i) => {
                     let hitAny = false;
                     for (let k = 0; k < w.segments.length; k++) {
@@ -3756,11 +3876,10 @@
                     }
                     if (hitAny && !w.dead) { /* no-op; laser can hit multiple segments, but damage is per-frame */ }
                 });
-                siphonFlies.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroySiphonFly(i); });
                 webWeavers.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyWebWeaver(i); });
                 // Boss Spider is immune to ultimate laser.
                 webNodes.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyWebNode(i); });
-                hawkShooters.forEach((e, i) => { if (checkLaserHit(e, e.size) && e.takeDamage(0.5)) destroyHawkShooter(i); });
+                
 
                 mineShrapnels.forEach((s, i) => { if (checkLaserHit(s, s.size)) { mineShrapnels.splice(i, 1); spawnParticles(s.x, s.y, COLOR_MINE); } });
                 
@@ -3860,12 +3979,11 @@
                         if (!hit) checkHpEnemy(sniperMosquitos, destroySniperMosquito);
                         if (!hit) checkHpEnemy(clusterRoaches, destroyClusterRoach);
                         if (!hit) checkHpEnemy(roachMites, destroyRoachMite);
-                        if (!hit) checkHpEnemy(siphonFlies, destroySiphonFly);
+                        if (!hit) checkHpEnemy(beetleFlies, destroyBeetleFly);
                         if (!hit) checkHpEnemy(webWeavers, destroyWebWeaver);
                         if (!hit) checkHpEnemy(bossSpiders, destroyBossSpider);
                         if (!hit) checkHpEnemy(bossSpiderlings, destroyBossSpiderling);
                         if (!hit) checkHpEnemy(webNodes, destroyWebNode);
-                        if (!hit) checkHpEnemy(hawkShooters, destroyHawkShooter);
 
                         // AcidWorm: bullets can hit any segment
                         if (!hit) {
@@ -3938,11 +4056,23 @@
                 if (checkCrash(sniperMosquitos, destroySniperMosquito, 20)) return;
                 if (checkCrash(clusterRoaches, destroyClusterRoach, 35)) return;
                 if (checkCrash(roachMites, destroyRoachMite, 10)) return;
-                if (checkCrash(siphonFlies, destroySiphonFly, 10)) return;
                 if (checkCrash(webWeavers, destroyWebWeaver, 20)) return;
                 if (checkCrash(bossSpiders, destroyBossSpider, 40)) return;
                 if (checkCrash(bossSpiderlings, destroyBossSpiderling, 15)) return;
-                if (checkCrash(hawkShooters, destroyHawkShooter, 20)) return;
+
+                // Beetle flies: small body damage + drain 2% ultimate on contact
+                for (let j = beetleFlies.length - 1; j >= 0; j--) {
+                    const f = beetleFlies[j];
+                    if (dist(player, f) < PLAYER_SIZE + f.size) {
+                        if (f.drainCooldown <= 0) {
+                            const drain = ULT_CHARGE_TIME * 0.02;
+                            player.ultCharge = Math.max(0, player.ultCharge - drain);
+                            updateUltUI();
+                            f.drainCooldown = 30;
+                        }
+                        if (player.invulnerable <= 0) { if (takeDamage(6)) return; }
+                    }
+                }
 
                 // AcidWorm: body damage if any segment is touched
                 for (let j = acidWorms.length - 1; j >= 0; j--) {
@@ -3965,17 +4095,7 @@
                     if (d < PLAYER_SIZE + 6) player.dampenTimer = Math.max(player.dampenTimer, 120);
                 }
 
-                // Siphon Fly: drain 15% ult on contact (cooldown per fly)
-                for (let j = siphonFlies.length - 1; j >= 0; j--) {
-                    const sf = siphonFlies[j];
-                    if (sf.drainCooldown > 0) continue;
-                    if (dist(player, sf) < sf.size + PLAYER_SIZE + 6) {
-                        sf.drainCooldown = 30;
-                        player.ultCharge = Math.max(0, player.ultCharge - 15);
-                        updateUltUI();
-                        playSound('shoot');
-                    }
-                }
+                
 
                 // Web Nodes / Lines: grid-lock for 0.5s
                 if (webNodes.length > 0) {
@@ -4259,16 +4379,16 @@
                 }
                 webNodes.forEach(n => { n.draw(ctx); });
                 staticBeetles.forEach(e => { e.update(player); e.draw(ctx); });
+                beetleFlies.forEach(e => { e.update(player); e.draw(ctx); });
                 phaseMantises.forEach(e => { e.update(player); e.draw(ctx); });
                 sniperMosquitos.forEach(e => { e.update(player); e.draw(ctx); });
                 clusterRoaches.forEach(e => { e.update(player); e.draw(ctx); });
                 roachMites.forEach(e => { e.update(player); e.draw(ctx); });
                 acidWorms.forEach(e => { e.update(player); e.draw(ctx); });
-                siphonFlies.forEach(e => { e.update(player); e.draw(ctx); });
                 webWeavers.forEach(e => { e.update(player); e.draw(ctx); });
                 bossSpiders.forEach(b => { b.update(player); b.draw(ctx); });
                 bossSpiderlings.forEach(e => { e.update(player); e.draw(ctx); });
-                hawkShooters.forEach(e => { e.update(player); e.draw(ctx); });
+                
                 
                 bossWorms.forEach(b => { b.update(player); b.draw(ctx); });
                 bossLancers.forEach(b => { b.update(player); b.draw(ctx); });
