@@ -386,7 +386,7 @@
     </div>
 
     <div class="controls-hint" id="game-controls-hint" style="display:none;">
-        [W] THRUST &nbsp; [A/D] ROTATE &nbsp; [SPACE] SHOOT &nbsp; [SHIFT] ULTIMATE LASER &nbsp; [F] AUTOFIRE &nbsp; [P] PAUSE
+        [W] THRUST &nbsp; [A/D] ROTATE &nbsp; [SPACE] SHOOT &nbsp; [SHIFT] ULTIMATE LASER &nbsp; [F] AUTOFIRE &nbsp; [P] PAUSE &nbsp; [M] MUTE
     </div>
 
     <canvas id="gameCanvas"></canvas>
@@ -3219,6 +3219,7 @@
                     gameState.autoFire = !gameState.autoFire;
                     if (player) createFloatingText(gameState.autoFire ? 'AUTO FIRE ON' : 'AUTO FIRE OFF', player.x, player.y);
                 }
+                if ((e.key === 'm' || e.key === 'M') && !e.repeat) toggleMute();
                 if (e.key === 'p' || e.key === 'P') togglePause();
             });
             window.addEventListener('keyup', e => {
@@ -3249,6 +3250,13 @@
             if (gameState.running && !gameState.gameOver) {
                 gameState.paused = !gameState.paused;
             }
+        }
+
+        function toggleMute() {
+            settings.sound = !settings.sound;
+            const soundValueEl = document.getElementById('val-sound');
+            if (soundValueEl) soundValueEl.innerText = settings.sound ? 'ON' : 'OFF';
+            if (player) createFloatingText(settings.sound ? 'SOUND ON' : 'MUTED', player.x, player.y);
         }
 
         // Define UI update functions globally so Player class can access them
@@ -4165,17 +4173,27 @@
                 if (checkCrash(bossSpiders, destroyBossSpider, 40)) return;
                 if (checkCrash(bossSpiderlings, destroyBossSpiderling, 15)) return;
 
-                // Beetle flies: small body damage + drain 2% ultimate on contact
+                // Beetle flies: siphon ultimate while orbiting near the player; extra drain + damage on contact
                 for (let j = beetleFlies.length - 1; j >= 0; j--) {
                     const f = beetleFlies[j];
-                    if (dist(player, f) < PLAYER_SIZE + f.size) {
-                        if (f.drainCooldown <= 0) {
-                            const drain = ULT_CHARGE_TIME * 0.02;
+                    const d = dist(player, f);
+                    const auraRadius = (f.orbitDist || 0) * 1.1;
+                    const touching = d < PLAYER_SIZE + f.size;
+
+                    // Aura siphon (matches their current orbit radius, with a small buffer)
+                    if (auraRadius > 0 && d < auraRadius && f.drainCooldown <= 0) {
+                        const pct = touching ? 0.015 : 0.005;
+                        const drain = ULT_CHARGE_TIME * pct;
+                        if (drain > 0) {
                             player.ultCharge = Math.max(0, player.ultCharge - drain);
                             updateUltUI();
-                            f.drainCooldown = 30;
                         }
-                        if (player.invulnerable <= 0) { if (takeDamage(6)) return; }
+                        f.drainCooldown = touching ? 30 : 45;
+                    }
+
+                    // Contact damage
+                    if (touching && player.invulnerable <= 0) {
+                        if (takeDamage(6)) return;
                     }
                 }
 
