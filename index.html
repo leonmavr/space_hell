@@ -2252,6 +2252,10 @@
                 this.shootCooldown = 60 + Math.floor(Math.random() * 120);
                 this.size = this.baseRadius; // used for generic systems
                 this.head = { x: this.baseX, y: this.baseY };
+
+                // Aggro cycle: every 10s, aggro for 2s.
+                // During aggro the tentacle actively chases the player and doubles its reach.
+                this.aggroClock = Math.floor(Math.random() * 600);
             }
 
             getSegmentRadius(i) {
@@ -2262,11 +2266,26 @@
             }
 
             update(player) {
-                // Stationary base; tentacle tip wiggles around base.
-                this.wiggleTime += 0.07;
-                const ax = Math.cos(this.wiggleTime) * this.wiggleRadius;
-                const ay = Math.sin(this.wiggleTime * 1.23) * this.wiggleRadius;
-                const tipTarget = { x: this.baseX + ax, y: this.baseY + ay };
+                // Stationary base; tentacle tip either wiggles or goes aggro and chases the player.
+                const AGGRO_PERIOD = 600;   // ~10s @ 60fps
+                const AGGRO_DURATION = 120; // ~2s  @ 60fps
+                this.aggroClock = (this.aggroClock + 1) % AGGRO_PERIOD;
+                const aggro = !!player && this.aggroClock < AGGRO_DURATION;
+
+                let tipTarget;
+                if (aggro) {
+                    const maxReach = this.wiggleRadius * 4.5;
+                    const dx = player.x - this.baseX;
+                    const dy = player.y - this.baseY;
+                    const d = Math.max(0.0001, Math.sqrt(dx * dx + dy * dy));
+                    const reach = Math.min(maxReach, d);
+                    tipTarget = { x: this.baseX + (dx / d) * reach, y: this.baseY + (dy / d) * reach };
+                } else {
+                    this.wiggleTime += 0.07;
+                    const ax = Math.cos(this.wiggleTime) * this.wiggleRadius;
+                    const ay = Math.sin(this.wiggleTime * 1.23) * this.wiggleRadius;
+                    tipTarget = { x: this.baseX + ax, y: this.baseY + ay };
+                }
 
                 // Simple 2-pass IK to keep base anchored.
                 // Backward: set tip then work toward base.
@@ -3876,6 +3895,15 @@
                 webWeavers.length === 0 &&
                 bossWorms.length === 0 && bossLancers.length === 0 && bossOrbitals.length === 0 && bossSpiders.length === 0) {
                 
+                // If this was a boss wave (11,22,33,44), reset the player's ultimate charge
+                if ([11,22,33,44].includes(gameState.wave)) {
+                    if (player) {
+                        player.ultCharge = 0;
+                        player.ultActive = false;
+                        player.ultTimer = 0;
+                        updateUltUI();
+                    }
+                }
                 gameState.wave++;
                 checkUnlocks();
                 setTimeout(startWave, 1000);
